@@ -1,0 +1,5 @@
+-- Databricks notebook source
+-- Analytics: User Metrics
+--
+-- TODO: Query the Lakebase tables (via Lakehouse Federation or a synced mirror) for
+-- per-user metrics: applications submitted, response rate, active days.

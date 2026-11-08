@@ -1,0 +1,5 @@
+-- Databricks notebook source
+-- Analytics: Job Market Insights
+--
+-- TODO: Market-level insights — top hiring companies, locations, salary bands by role,
+-- remote share over time (feeds dashboards).

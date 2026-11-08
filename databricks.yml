@@ -1,0 +1,37 @@
+# Declarative Automation Bundle for the job-hunting-copilot project.
+# Validate with: databricks bundle validate
+# Deploy with:    databricks bundle deploy
+#
+# The two jobs below are created PAUSED — unpause them in the Jobs UI once the
+# ingestion and cleanup notebooks are implemented.
+bundle:
+  name: job-hunting-copilot
+
+targets:
+  dev:
+    default: true
+    mode: development
+
+resources:
+  jobs:
+    daily_job_sync:
+      description: Fetch new postings from Adzuna + RemoteOK, transform, and load into Lakebase (TODO: wire up tasks once ingestion notebooks are implemented).
+      schedule:
+        quartz_cron_expression: "0 0 7 * * ?"
+        timezone_id: Europe/Paris
+        pause_status: PAUSED
+      tasks:
+        - task_key: ingest_jobs
+          notebook_task:
+            notebook_path: src/workflows/daily_job_sync.py
+
+    weekly_cleanup:
+      description: Weekly cleanup of stale postings and closed applications (TODO: wire up tasks once implemented).
+      schedule:
+        quartz_cron_expression: "0 0 8 ? * MON"
+        timezone_id: Europe/Paris
+        pause_status: PAUSED
+      tasks:
+        - task_key: run_cleanup
+          notebook_task:
+            notebook_path: src/workflows/weekly_cleanup.py

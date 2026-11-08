@@ -1,0 +1,5 @@
+# TODO: app dependencies — e.g.
+# streamlit
+# databricks-sdk
+# databricks-vectorsearch
+# pg8000

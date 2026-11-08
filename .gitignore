@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Databricks bundle & local state
+.databricks/
+.bundle/
+
+# Never commit secrets or credentials
+.env
+.env.*
+*.secret
+secrets.json
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Legacy workspace folders from the pre-Git structure — still runnable in the
+# workspace UI, but not part of the repo. Delete them once migrated.
+/00_setup/
+/01_data_ingestion/
+/02_embeddings/
+/03_agent/
+/04_app/
+/05_workflows/
+/06_testing/
+/07_analytics/

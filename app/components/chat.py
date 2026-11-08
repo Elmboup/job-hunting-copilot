@@ -1,0 +1,1 @@
+# TODO: UI component — chat interface to the job-hunting copilot agent.

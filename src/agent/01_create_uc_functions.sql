@@ -1,0 +1,7 @@
+-- Databricks notebook source
+-- Agent: Create Unity Catalog Functions
+--
+-- TODO: Create the UC functions the agent will call, e.g. in main.job_hunting_tools:
+--   - match_jobs(role TEXT, location TEXT) -> postings matching a profile
+--   - application_summary(user_id INT) -> application pipeline per user
+-- See src/setup/03 for the catalog/schema plan (main.job_hunting, main.job_hunting_tools).

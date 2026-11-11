@@ -1,8 +1,11 @@
 # Databricks notebook source
-%pip install pg8000
+# DBTITLE 1,Install Postgres driver
+# MAGIC %pip install pg8000
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 1
+# Databricks notebook source
 # MAGIC %md
 # MAGIC # Setup: Create Lakebase Database Schema
 # MAGIC 

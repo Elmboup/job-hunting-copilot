@@ -1,16 +1,17 @@
 # Databricks notebook source
+# DBTITLE 1,Install Dependencies
 # MAGIC %md
 # MAGIC ## Install Dependencies
 # MAGIC 
 # MAGIC `databricks-ai-search` (formerly `databricks-vectorsearch`) is not
 # MAGIC preinstalled on serverless — run this cell first in every new session.
 
-# COMMAND ----------
-
 %pip install databricks-ai-search
 
 # COMMAND ----------
 
+# DBTITLE 1,Imports
+# Databricks notebook source
 # MAGIC %md
 # MAGIC # Create Vector Search Index
 # MAGIC 
@@ -20,8 +21,6 @@
 # MAGIC pre-computed by `01_generate_embeddings.py`, so the index has no embedding
 # MAGIC model endpoint of its own — queries must embed the query text with
 # MAGIC `ai_query` and pass a `query_vector` (see Step 5).
-
-# COMMAND ----------
 
 from databricks.ai_search.client import VectorSearchClient
 from databricks.sdk import WorkspaceClient
@@ -38,10 +37,9 @@ w = WorkspaceClient()
 
 # COMMAND ----------
 
+# DBTITLE 1,Configuration
 # MAGIC %md
 # MAGIC ## Configuration
-
-# COMMAND ----------
 
 # Vector Search configuration
 ENDPOINT_NAME = "job-hunting-endpoint"
@@ -54,10 +52,9 @@ MODEL_ENDPOINT = "databricks-bge-large-en"  # must match 01_generate_embeddings.
 
 # COMMAND ----------
 
+# DBTITLE 1,Step 1: Create Endpoint
 # MAGIC %md
 # MAGIC ## Step 1: Create Vector Search Endpoint
-
-# COMMAND ----------
 
 # Check if endpoint exists
 try:
@@ -78,10 +75,9 @@ except Exception:
 
 # COMMAND ----------
 
+# DBTITLE 1,Step 2: Wait for Endpoint
 # MAGIC %md
 # MAGIC ## Step 2: Wait for Endpoint to be Online
-
-# COMMAND ----------
 
 import time
 
@@ -112,14 +108,13 @@ while time.time() - start_time < max_wait:
 
 # COMMAND ----------
 
+# DBTITLE 1,Step 3: Create Index
 # MAGIC %md
 # MAGIC ## Step 3: Create Vector Search Index
 # MAGIC 
 # MAGIC Prerequisites (set up at the end of `01_generate_embeddings.py`):
 # MAGIC - Change Data Feed enabled on the source table
 # MAGIC - `PRIMARY KEY` constraint on `job_id`
-
-# COMMAND ----------
 
 # Check if index exists
 try:
@@ -144,10 +139,9 @@ except Exception:
 
 # COMMAND ----------
 
+# DBTITLE 1,Step 4: Sync Index
 # MAGIC %md
 # MAGIC ## Step 4: Sync Index (if needed)
-
-# COMMAND ----------
 
 # Trigger sync
 try:
@@ -158,14 +152,13 @@ except Exception as e:
 
 # COMMAND ----------
 
+# DBTITLE 1,Step 5: Test Semantic Search
 # MAGIC %md
 # MAGIC ## Step 5: Test Semantic Search
 # MAGIC 
 # MAGIC The index has no embedding model endpoint (self-managed embeddings), so
 # MAGIC `query_text` cannot be used. Instead: embed the query with `ai_query`, then
 # MAGIC pass the vector with `query_vector` via the SDK's `query_index`.
-
-# COMMAND ----------
 
 print("Testing semantic search...\n")
 
@@ -207,10 +200,9 @@ except Exception as e:
 
 # COMMAND ----------
 
+# DBTITLE 1,Test Different Queries
 # MAGIC %md
 # MAGIC ## Test Different Queries
-
-# COMMAND ----------
 
 test_queries = [
     "stage data science machine learning",
@@ -247,6 +239,7 @@ for query in test_queries:
 
 # COMMAND ----------
 
+# DBTITLE 1,Free Spark Similarity Search (no endpoint)
 # MAGIC %md
 # MAGIC ## Alternative: Free Spark Similarity Search (no endpoint)
 # MAGIC 
@@ -258,8 +251,6 @@ for query in test_queries:
 # MAGIC 
 # MAGIC Uses only native higher-order expressions (`zip_with`, `aggregate`) —
 # MAGIC no UDFs, and the query vector never leaves Spark.
-
-# COMMAND ----------
 
 from pyspark.sql.functions import col, expr
 
@@ -302,6 +293,7 @@ display(demo_results.select("title", "company", "location", "contract_type_fr", 
 
 # COMMAND ----------
 
+# DBTITLE 1,Summary
 print("\n" + "="*60)
 print("✅ VECTOR SEARCH INDEX READY")
 print("="*60)

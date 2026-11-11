@@ -1,4 +1,6 @@
 # Databricks notebook source
+# DBTITLE 1,Cell 1
+# Databricks notebook source
 # MAGIC %md
 # MAGIC # Data Ingestion: Fetch Jobs from Adzuna France
 # MAGIC 

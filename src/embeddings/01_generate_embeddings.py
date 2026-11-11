@@ -1,11 +1,11 @@
 # Databricks notebook source
+# DBTITLE 1,Imports
+# Databricks notebook source
 # MAGIC %md
 # MAGIC # Generate Embeddings for Job Descriptions
 # MAGIC 
 # MAGIC Create vector embeddings using Databricks Foundation Models with the native
 # MAGIC `ai_query` function — no pandas UDF and no manual API tokens needed.
-
-# COMMAND ----------
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, concat_ws, substring, expr
@@ -14,10 +14,9 @@ spark = SparkSession.builder.appName("GenerateEmbeddings").getOrCreate()
 
 # COMMAND ----------
 
+# DBTITLE 1,Load Jobs from Delta Lake
 # MAGIC %md
 # MAGIC ## Load Jobs from Delta Lake
-
-# COMMAND ----------
 
 jobs_df = spark.table("main.job_hunting.raw_job_postings")
 
@@ -28,12 +27,11 @@ jobs_df.select("job_id", "title", "company", "location").show(5, truncate=False)
 
 # COMMAND ----------
 
+# DBTITLE 1,Create Combined Text for Embedding
 # MAGIC %md
 # MAGIC ## Create Combined Text for Embedding
 # MAGIC 
 # MAGIC Combine title, company, location, and description into one text field.
-
-# COMMAND ----------
 
 jobs_with_text = jobs_df.withColumn(
     "combined_text",
@@ -54,20 +52,19 @@ jobs_with_text.select("job_id", "combined_text").show(2, truncate=100)
 
 # COMMAND ----------
 
+# DBTITLE 1,Embeddings with ai_query
 # MAGIC %md
 # MAGIC ## Generate Embeddings with `ai_query` (Databricks Foundation Model)
 # MAGIC 
 # MAGIC `databricks-bge-large-en` produces **1024-dimensional** vectors.
 # MAGIC 
 # MAGIC Notes:
-# MAGIC - `ai_query` is the native Spark expression (pandas UDFs are a last resort),
-# MAGIC   and `w.config.token` is typically None on serverless notebooks, which
-# MAGIC   would break manual HTTP calls.
-# MAGIC - `bge-large-en` is English-tuned. It still embeds French text, but a
-# MAGIC   multilingual model (e.g. BAAI/bge-m3 on a Model Serving endpoint) is a
-# MAGIC   good upgrade — only this name would change.
-
-# COMMAND ----------
+# MAGIC - This replaces an earlier pandas-UDF + `requests` design: `ai_query` is
+# MAGIC   the native Spark expression (UDFs are a last resort), and `w.config.token`
+# MAGIC   is typically None on serverless notebooks, which broke the manual HTTP calls.
+# MAGIC - `bge-large-en` is English-tuned. It still embeds French text, but for better
+# MAGIC   matching on French job descriptions, a multilingual model (e.g. BAAI/bge-m3
+# MAGIC   on a Model Serving endpoint) is a good upgrade — only this name would change.
 
 MODEL_ENDPOINT = "databricks-bge-large-en"  # must match 02_create_vector_index.py
 
@@ -78,10 +75,9 @@ jobs_with_embeddings = jobs_with_text.withColumn(
 
 # COMMAND ----------
 
+# DBTITLE 1,Generate Embeddings
 # MAGIC %md
 # MAGIC ## Generate Embeddings (This may take a few minutes)
-
-# COMMAND ----------
 
 print("Generating embeddings...")
 
@@ -95,10 +91,9 @@ print(f"\n✅ Generated embeddings for {embedding_count} jobs")
 
 # COMMAND ----------
 
+# DBTITLE 1,Verify Embeddings
 # MAGIC %md
 # MAGIC ## Verify Embeddings
-
-# COMMAND ----------
 
 # Check embedding dimensions
 sample_embedding = jobs_with_embeddings.filter(col("embedding").isNotNull()).select("embedding").first()
@@ -116,10 +111,9 @@ else:
 
 # COMMAND ----------
 
+# DBTITLE 1,Save to Delta Lake
 # MAGIC %md
 # MAGIC ## Save to Delta Lake
-
-# COMMAND ----------
 
 # Select relevant columns
 final_df = jobs_with_embeddings.select(
@@ -178,10 +172,9 @@ print(f"\n✅ Saved {final_df.count()} jobs with embeddings to {table_name}")
 
 # COMMAND ----------
 
+# DBTITLE 1,Verify Saved Data
 # MAGIC %md
 # MAGIC ## Verify Saved Data
-
-# COMMAND ----------
 
 # Read back
 result_df = spark.table(table_name)
@@ -195,6 +188,7 @@ result_df.select("job_id", "title", "company", "location").show(5, truncate=Fals
 
 # COMMAND ----------
 
+# DBTITLE 1,Summary
 print("\n" + "="*60)
 print("✅ EMBEDDINGS GENERATION COMPLETE")
 print("="*60)

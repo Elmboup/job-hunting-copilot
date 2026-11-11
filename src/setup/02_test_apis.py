@@ -1,4 +1,5 @@
 # Databricks notebook source
+# Databricks notebook source
 # MAGIC %md
 # MAGIC # Setup: Test API Connections
 # MAGIC 
@@ -75,6 +76,7 @@ print("="*50)
 
 # COMMAND ----------
 
+# DBTITLE 1,Diagnose Adzuna credentials (safe)
 # Diagnose the stored Adzuna credentials — SAFE: never prints the values, only their shape.
 _adzuna_app_id = dbutils.secrets.get(scope="job-hunting", key="adzuna-app-id")
 _adzuna_api_key = dbutils.secrets.get(scope="job-hunting", key="adzuna-api-key")

@@ -1,8 +1,10 @@
 # Databricks notebook source
+# DBTITLE 1,Cell 1
+# Databricks notebook source
 # MAGIC %md
 # MAGIC # Load to Delta Lake
 # MAGIC 
-# MAGIC Save transformed jobs to the Delta Lake table `main.job_hunting.raw_job_postings`.
+# MAGIC Save transformed jobs to Delta Lake table.
 
 # COMMAND ----------
 
@@ -14,14 +16,14 @@ spark = SparkSession.builder.appName("LoadToDelta").getOrCreate()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Create Schema
+# MAGIC ## Create Catalog and Schema
 
 # COMMAND ----------
 
 # Create the schema if it doesn't exist (the main catalog already exists)
 spark.sql("CREATE SCHEMA IF NOT EXISTS main.job_hunting")
 
-print("✅ Schema ready")
+print("✅ Catalog and schema ready")
 
 # COMMAND ----------
 

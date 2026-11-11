@@ -1,8 +1,10 @@
 # Databricks notebook source
+# DBTITLE 1,Cell 1
+# Databricks notebook source
 # MAGIC %md
 # MAGIC # Data Transformation: Clean and Structure Job Data
 # MAGIC 
-# MAGIC Transform raw Adzuna jobs into our schema (clean, deduplicate, normalize).
+# MAGIC Transform raw Adzuna jobs into our schema.
 
 # COMMAND ----------
 

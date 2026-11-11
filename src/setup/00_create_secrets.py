@@ -1,4 +1,6 @@
 # Databricks notebook source
+# DBTITLE 1,Cell 1
+# Databricks notebook source
 # MAGIC %md
 # MAGIC # Setup: Create Databricks Secrets
 # MAGIC 
@@ -7,7 +9,7 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Instructions (CLI route)
+# MAGIC ## Instructions
 # MAGIC 
 # MAGIC 1. Install the Databricks CLI (v0.205 or above) locally — the legacy `pip install databricks-cli` package is deprecated:
 # MAGIC    ```bash
@@ -49,6 +51,7 @@ except Exception as e:
 
 # COMMAND ----------
 
+# DBTITLE 1,Store Adzuna API secrets from notebook
 # Store the Adzuna API credentials in the 'job-hunting' secret scope — right from this notebook.
 # No local Databricks CLI needed: the Databricks SDK authenticates automatically as you.
 #
@@ -56,7 +59,6 @@ except Exception as e:
 #   1. Run this cell once — two input widgets appear at the top of the notebook
 #           (values are visible while typing, so do this when your screen isn't shared).
 #   2. Type your Adzuna App ID and API Key into the widgets.
-#      NOTE: the App ID is the SHORT one (8 hex chars); the API Key is the LONG one (32 hex chars).
 #   3. Re-run this cell — the values are stored as secrets and the widgets are removed.
 
 from databricks.sdk import WorkspaceClient

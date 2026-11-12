@@ -21,6 +21,12 @@ from components.auth import get_workspace_client
 
 SCHEMA = "app_data"
 
+# Endpoint resource path (verified via postgres list-endpoints). LAKEBASE_ENDPOINT
+# is injected from app.yaml (env: valueFrom: postgres) once the Lakebase resource
+# is attached to the app; this fallback keeps connections working if the builder
+# does not propagate that env var.
+_DEFAULT_ENDPOINT = "projects/job-hunting-copilot/branches/production/endpoints/primary"
+
 APPLICATION_STATUSES = ["En cours", "Entretien", "Offre", "Rejeté"]
 
 _DDL = f"""
@@ -80,13 +86,7 @@ _initialized = False
 @contextmanager
 def lakebase_connection():
     """Open a short-lived Lakebase connection with a freshly minted OAuth token."""
-    endpoint = os.environ.get("LAKEBASE_ENDPOINT")
-    if not endpoint:
-        raise RuntimeError(
-            "LAKEBASE_ENDPOINT n'est pas défini — la base Lakebase doit être "
-            "attachée à l'app (resource `postgres` dans app.yaml) puis l'app "
-            "redéployée."
-        )
+    endpoint = os.environ.get("LAKEBASE_ENDPOINT") or _DEFAULT_ENDPOINT
     w = get_workspace_client()
     cred = w.postgres.generate_database_credential(endpoint=endpoint)
     conn = psycopg.connect(

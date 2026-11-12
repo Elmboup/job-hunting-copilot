@@ -11,7 +11,7 @@ command: ["sh", "-c", "streamlit run app.py --server.port ${DATABRICKS_APP_PORT:
 # resource names verified: postgres list-endpoints / list-databases.
 env:
   - name: LAKEBASE_ENDPOINT
-    valueFrom: postgres
+    valueFrom: job-hunting-copilot-db
 resources:
   - name: lakebase-db
     postgres:

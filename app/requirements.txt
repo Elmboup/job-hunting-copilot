@@ -1,5 +1,5 @@
 streamlit>=1.28.0
-databricks-sdk>=0.65.0
+databricks-sdk>=0.118.0
 databricks-langchain>=0.22.0
 # langgraph pins: the resolver otherwise lands on langgraph 1.0.10 +
 # langgraph-prebuilt 1.0.13, a symbol-incompatible pair ("cannot import name
@@ -10,3 +10,9 @@ langgraph-prebuilt>=1.0
 # (ChatDatabricks 404s on system.ai.* model services).
 langchain-openai>=1.7.0
 nest-asyncio>=1.5.8
+# Lakebase (managed Postgres) persistence: psycopg3 with the binary wheel
+# (w.postgres.generate_database_credential needs databricks-sdk>=0.118).
+psycopg[binary]>=3.1.0
+# Resume parsing: instant text extraction for PDFs with embedded text
+# (scanned PDFs / DOCX fall back to the ai_parse_document REST endpoint).
+pypdf>=4.0.0

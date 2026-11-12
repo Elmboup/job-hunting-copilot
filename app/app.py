@@ -214,6 +214,7 @@ a.job-card:hover { background: #FCFDFE; }
 .status-pending    { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
 .status-interview { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
 .status-rejected  { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
+.status-offer     { background: #F0FDF4; color: #166534; border: 1px solid #BBF7D0; }
 
 /* ---------- Metrics, chat, expanders ---------- */
 [data-testid="stMetric"] {
@@ -272,6 +273,12 @@ if 'user_profile' not in st.session_state:
         'contract_preference': 'CDI',
         'remote_preference': 'Hybride'
     }
+if 'resume_text' not in st.session_state:
+    st.session_state.resume_text = None
+if 'resume_parsed' not in st.session_state:
+    st.session_state.resume_parsed = None
+if 'profile_loaded' not in st.session_state:
+    st.session_state.profile_loaded = False
 
 # Initialize agent + UC function tools (cached, lazy — see components/chat.py:
 # ChatOpenAI on the Unity Gateway /ai-gateway/mlflow/v1 Chat Completions API
@@ -308,7 +315,29 @@ def ensure_agent():
 # Sidebar - User Profile
 with st.sidebar:
     st.markdown("### Profil")
-    
+
+    # Load the saved profile from Lakebase once per session (silently keeps
+    # local defaults when Lakebase is not reachable yet).
+    if not st.session_state.profile_loaded:
+        st.session_state.profile_loaded = True
+        try:
+            from components import db as db_mod
+            saved = db_mod.load_profile(db_mod.current_user_email())
+            if saved:
+                for key in ('name', 'experience', 'remote_preference', 'contract_preference'):
+                    if saved.get(key):
+                        st.session_state.user_profile[key] = saved[key]
+                if saved.get('location_preferences'):
+                    st.session_state.user_profile['location'] = saved['location_preferences'][0]
+                if saved.get('target_roles'):
+                    st.session_state.user_profile['target_roles'] = saved['target_roles']
+                if saved.get('skills'):
+                    st.session_state.user_profile['skills'] = list(saved['skills'])
+                if saved.get('resume_text'):
+                    st.session_state.resume_text = saved['resume_text']
+        except Exception:
+            pass  # Lakebase unavailable — local defaults stay in place
+
     # Editable profile
     with st.expander("Modifier le profil", expanded=False):
         st.session_state.user_profile['name'] = st.text_input(
@@ -346,7 +375,59 @@ with st.sidebar:
             value=', '.join(st.session_state.user_profile['skills'])
         )
         st.session_state.user_profile['skills'] = [s.strip() for s in skills_input.split(',')]
+
+        # Resume upload — parsing fills the profile fields automatically
+        resume_file = st.file_uploader(
+            "CV (PDF, DOCX, TXT) — extraction automatique des compétences",
+            type=["pdf", "docx", "doc", "txt", "md"],
+        )
+        if resume_file is not None and st.session_state.resume_parsed != resume_file.name:
+            from components import resume as resume_mod  # lazy import
+            with st.spinner("Analyse du CV en cours…"):
+                try:
+                    text = resume_mod.extract_resume_text(
+                        resume_file.getvalue(), resume_file.name
+                    )
+                    extracted = resume_mod.extract_profile_from_resume(text)
+                    st.session_state.resume_text = text
+                    st.session_state.resume_parsed = resume_file.name
+                    if extracted['skills']:
+                        st.session_state.user_profile['skills'] = extracted['skills']
+                    if extracted['name']:
+                        st.session_state.user_profile['name'] = extracted['name']
+                    if extracted['years_experience']:
+                        st.session_state.user_profile['experience'] = extracted['years_experience']
+                    st.success(
+                        f"CV analysé — {len(extracted['skills'])} compétences extraites. "
+                        "Les champs se mettent à jour au prochain rechargement."
+                    )
+                except Exception as e:
+                    st.error(f"Analyse du CV impossible : {e}")
     
+    # Persist the profile (and parsed resume) to Lakebase
+    if st.button("Sauvegarder le profil"):
+        try:
+            from components import db as db_mod
+            email = db_mod.current_user_email()
+            user_id = db_mod.get_user_id(email, st.session_state.user_profile['name'])
+            profile = {
+                'name': st.session_state.user_profile['name'],
+                'experience': st.session_state.user_profile['experience'],
+                'target_roles': st.session_state.user_profile.get('target_roles') or [],
+                'location_preferences': [st.session_state.user_profile['location']],
+                'remote_preference': st.session_state.user_profile['remote_preference'],
+                'contract_preference': st.session_state.user_profile['contract_preference'],
+                'resume_text': st.session_state.resume_text,
+            }
+            db_mod.save_profile(
+                user_id, profile,
+                st.session_state.user_profile['skills'],
+                source='resume' if st.session_state.resume_text else 'manual',
+            )
+            st.success("Profil sauvegardé dans Lakebase.")
+        except Exception as e:
+            st.error(f"Sauvegarde impossible : {e}")
+
     # Display current profile
     st.markdown("---")
     st.write(f"**Nom:** {st.session_state.user_profile['name']}")
@@ -537,7 +618,19 @@ with tab2:
                     col_a, col_b, col_c = st.columns(3)
                     with col_a:
                         if st.button("Sauvegarder", key=f"save_{job['job_id']}"):
-                            st.success("Offre sauvegardée.")
+                            try:
+                                from components import db as db_mod
+                                user_id = db_mod.get_user_id(
+                                    db_mod.current_user_email(),
+                                    st.session_state.user_profile['name'],
+                                )
+                                is_new = db_mod.save_application(user_id, job)
+                                st.success(
+                                    "Candidature sauvegardée." if is_new
+                                    else "Candidature déjà suivie — mise à jour."
+                                )
+                            except Exception as e:
+                                st.error(f"Sauvegarde impossible : {e}")
                     with col_b:
                         if st.button("Lettre de motivation", key=f"letter_{job['job_id']}"):
                             # Generate via the draft_cover_letter UC function (LLM call)
@@ -570,33 +663,84 @@ with tab2:
 with tab3:
     st.markdown("### Mes candidatures")
     
-    st.info("Fonctionnalité en développement — Lakebase sera connecté pour suivre vos candidatures.")
+    # Applications are persisted in Lakebase (app_data.applications)
+    db_mod = None
+    try:
+        from components import db as _db
+        db_mod = _db
+    except Exception as e:
+        st.error(f"Module base de données indisponible : {e}")
+
+    user_id = None
+    applications = []
+    if db_mod:
+        try:
+            user_id = db_mod.get_user_id(
+                db_mod.current_user_email(),
+                st.session_state.user_profile['name'],
+            )
+            applications = db_mod.list_applications(user_id)
+        except Exception as e:
+            st.warning(f"Lakebase indisponible : {e}")
     
-    # Mock data for demo
-    st.markdown("#### Candidatures en cours")
-    
-    mock_applications = [
-        {"title": "Data Engineer Senior", "company": "TechCorp", "status": "En attente", "date": "05/11/2024"},
-        {"title": "ML Engineer", "company": "DataCo", "status": "Entretien prévu", "date": "03/11/2024"},
-        {"title": "Data Scientist", "company": "AI Startup", "status": "Refusé", "date": "28/10/2024"},
-    ]
-    
-    status_class = {
-        "En attente": "status-pending",
-        "Entretien prévu": "status-interview",
-        "Refusé": "status-rejected",
-    }
-    
-    for app in mock_applications:
-        st.markdown(f"""
-        <div class="application-row">
-            <div>
-                <div class="job-title">{app['title']}</div>
-                <div class="job-company">{app['company']} · {app['date']}</div>
+    if applications:
+        st.markdown(f"#### {len(applications)} candidature(s) suivie(s)")
+        status_class = {
+            "En cours": "status-pending",
+            "Entretien": "status-interview",
+            "Offre": "status-offer",
+            "Rejeté": "status-rejected",
+        }
+        for app_row in applications:
+            status = app_row['status'] or "En cours"
+            date_str = str(app_row['applied_date'] or '')
+            st.markdown(f"""
+            <div class="application-row">
+                <div>
+                    <div class="job-title">{app_row['title'] or app_row['job_id']}</div>
+                    <div class="job-company">{app_row['company'] or '—'} · {date_str}</div>
+                </div>
+                <span class="status-pill {status_class.get(status, 'status-pending')}">{status}</span>
             </div>
-            <span class="status-pill {status_class[app['status']]}">{app['status']}</span>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+            with st.expander("Gérer"):
+                col_s, col_u, col_l = st.columns(3)
+                with col_s:
+                    new_status = st.selectbox(
+                        "Statut",
+                        db_mod.APPLICATION_STATUSES,
+                        index=(db_mod.APPLICATION_STATUSES.index(status)
+                               if status in db_mod.APPLICATION_STATUSES else 0),
+                        key=f"status_{app_row['application_id']}",
+                    )
+                with col_u:
+                    if st.button("Mettre à jour", key=f"upd_{app_row['application_id']}"):
+                        try:
+                            db_mod.update_application(
+                                app_row['application_id'],
+                                status=new_status,
+                                notes=st.session_state.get(
+                                    f"notes_{app_row['application_id']}_input"
+                                ),
+                            )
+                            st.success("Candidature mise à jour.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Mise à jour impossible : {e}")
+                with col_l:
+                    if app_row.get('url'):
+                        st.link_button("Voir l'offre", app_row['url'])
+                st.text_area(
+                    "Notes",
+                    value=app_row.get('notes') or "",
+                    key=f"notes_{app_row['application_id']}_input",
+                    height=100,
+                )
+    elif user_id is not None:
+        st.info(
+            "Aucune candidature pour l'instant. Sauvegardez des offres depuis "
+            "l'onglet « Recherche d'offres » → Détails → Sauvegarder."
+        )
 
 # Footer
 st.markdown("---")

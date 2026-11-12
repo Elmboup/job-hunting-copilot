@@ -2,3 +2,19 @@
 # a hardcoded 8080 leaves the process alive but unreachable (permanent 502).
 # sh -c is required because argv entries don't expand environment variables.
 command: ["sh", "-c", "streamlit run app.py --server.port ${DATABRICKS_APP_PORT:-8080} --server.address 0.0.0.0"]
+
+# Lakebase (managed Postgres) app resource. Injects PGHOST / PGPORT /
+# PGDATABASE / PGUSER / PGSSLMODE and lets the app's service principal
+# (CAN_CONNECT_AND_CREATE) mint short-lived OAuth credentials via
+# w.postgres.generate_database_credential(). The app owns its own schema
+# (app_data in components/db.py) — it cannot access pre-existing schemas.
+# resource names verified: postgres list-endpoints / list-databases.
+env:
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: postgres
+resources:
+  - name: lakebase-db
+    postgres:
+      branch: projects/job-hunting-copilot/branches/production
+      database: projects/job-hunting-copilot/branches/production/databases/databricks-postgres
+      permission: CAN_CONNECT_AND_CREATE

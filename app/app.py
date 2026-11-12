@@ -31,20 +31,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS — clean, professional design system
+# Custom CSS — polished product design system
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
-    --ink: #0F172A;
-    --ink-2: #334155;
+    --ink: #0B1220;
+    --ink-2: #1E293B;
     --muted: #64748B;
-    --border: #E2E8F0;
+    --border: #E5EAF0;
     --accent: #0E7490;
     --accent-strong: #0C6377;
     --accent-soft: #F0F7FA;
-    --radius: 8px;
+    --accent-ink: #0C5C74;
+    --radius: 10px;
+    --radius-sm: 8px;
+    --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-2: 0 10px 28px -10px rgba(15, 23, 42, 0.18);
 }
 
 /* ---------- Base ---------- */
@@ -53,60 +57,92 @@ html, body, .stApp, [class*="css"] {
     color: var(--ink);
     font-feature-settings: 'tnum' 1;
 }
-.stApp { background: #F8F9FB; }
+.stApp {
+    background:
+        radial-gradient(1100px 300px at 85% -80px, rgba(14, 116, 144, 0.06), transparent 70%),
+        linear-gradient(180deg, #FAFBFD 0%, #F5F7FA 320px);
+}
 #MainMenu, footer { visibility: hidden; }
-.block-container { padding-top: 1.8rem; padding-bottom: 3rem; max-width: 1100px; }
+.block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1080px; }
 .stApp h1, .stApp h2, .stApp h3 {
     color: var(--ink);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
+}
+.stApp .stMarkdown h3 {
+    font-size: 1.02rem;
+    font-weight: 700;
+    margin-bottom: 0.7rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 hr { border-color: var(--border); }
+
+@keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
 
 /* ---------- Masthead ---------- */
 .masthead {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding-bottom: 18px;
+    gap: 16px;
+    padding: 4px 4px 20px 4px;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 14px;
+    margin-bottom: 18px;
 }
 .masthead-mark {
-    width: 38px; height: 38px;
-    border-radius: 10px;
-    background: var(--accent);
+    width: 46px; height: 46px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #0E7490 0%, #0EA5E9 100%);
     color: #ffffff;
-    font-weight: 700; font-size: 15px;
+    font-weight: 800; font-size: 16px;
+    letter-spacing: 0.02em;
     display: flex; align-items: center; justify-content: center;
     flex: none;
+    box-shadow: 0 6px 16px -6px rgba(14, 116, 144, 0.55);
 }
 .masthead h1 {
-    font-size: 1.25rem; font-weight: 700;
-    margin: 0; line-height: 1.25; color: var(--ink);
+    font-size: 1.35rem; font-weight: 800;
+    margin: 0; line-height: 1.2; color: var(--ink);
+    letter-spacing: -0.02em;
 }
 .masthead p {
-    font-size: 0.875rem; color: var(--muted); margin: 2px 0 0;
+    font-size: 0.875rem; color: var(--muted); margin: 3px 0 0; font-weight: 400;
+}
+.masthead .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip {
+    font-size: 0.72rem; font-weight: 600;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+    border: 1px solid #D7E9EF;
+    border-radius: 999px;
+    padding: 0.22rem 0.6rem;
+    white-space: nowrap;
 }
 
-/* ---------- Tabs (underline) ---------- */
+/* ---------- Tabs (underline + soft active) ---------- */
 .stTabs [data-baseweb="tab-list"] {
     border-bottom: 1px solid var(--border);
-    gap: 4px;
+    gap: 2px;
 }
 .stTabs [data-baseweb="tab"] {
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
-    border-radius: 0;
-    padding: 8px 6px;
-    margin-right: 20px;
-    font-weight: 500; font-size: 0.9rem;
+    border-radius: 8px 8px 0 0;
+    padding: 9px 14px;
+    margin-right: 14px;
+    font-weight: 600; font-size: 0.9rem;
     color: var(--muted);
     box-shadow: none;
+    transition: color 0.15s ease, background 0.15s ease;
 }
-.stTabs [data-baseweb="tab"]:hover { color: var(--ink-2); background: transparent; }
+.stTabs [data-baseweb="tab"]:hover { color: var(--ink-2); background: #F1F5F9; }
 .stTabs [data-baseweb="tab"][aria-selected="true"] {
-    color: var(--ink);
+    color: var(--accent-ink);
+    background: var(--accent-soft);
     border-bottom-color: var(--accent);
 }
 .stTabs [data-baseweb="tab-highlight"],
@@ -117,79 +153,96 @@ hr { border-color: var(--border); }
     background: #ffffff;
     color: var(--ink-2);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-weight: 500; font-size: 0.875rem;
-    padding: 0.3rem 1rem;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    border-radius: var(--radius-sm);
+    font-weight: 600; font-size: 0.85rem;
+    padding: 0.35rem 1rem;
+    box-shadow: var(--shadow-1);
+    transition: all 0.15s ease;
     text-decoration: none;
 }
 .stButton > button:hover, .stButton a:hover {
     background: #F8FAFC;
     border-color: #CBD5E1;
     color: var(--ink);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-    transform: none;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.15);
 }
 .stButton > button[kind="primary"],
 .stButton > button[data-testid="stBaseButton-primary"] {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: linear-gradient(135deg, #0E7490, #0C8DA8);
+    border: none;
     color: #ffffff;
+    box-shadow: 0 4px 14px -4px rgba(14, 116, 144, 0.5);
 }
 .stButton > button[kind="primary"]:hover {
-    background: var(--accent-strong);
-    border-color: var(--accent-strong);
+    background: linear-gradient(135deg, #0C6377, #0E7490);
     color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px -4px rgba(14, 116, 144, 0.55);
 }
 
 /* ---------- Sidebar ---------- */
 [data-testid="stSidebar"] {
     border-right: 1px solid var(--border);
+    background: linear-gradient(180deg, #FDFEFE 0%, #F7F9FB 100%);
 }
 [data-testid="stSidebar"] .stMarkdown h3 {
     font-size: 0.72rem;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.09em;
     color: var(--muted);
     margin-bottom: 0.75rem;
+    display: block;
 }
 [data-testid="stSidebar"] hr { margin: 1rem 0; }
 
-/* ---------- Cards & rows ---------- */
+/* ---------- Job cards ---------- */
 .job-card {
     background: #ffffff;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 0.95rem 1.1rem;
-    margin-bottom: 0.6rem;
-    transition: border-color 0.15s ease;
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.7rem;
+    box-shadow: var(--shadow-1);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    animation: rise 0.3s ease both;
 }
-.job-card:hover { border-color: #CBD5E1; }
-a.job-card {
-    display: block;
-    text-decoration: none;
-    color: inherit;
+.job-card:hover {
+    border-color: #BFD8E3;
+    box-shadow: var(--shadow-2);
+    transform: translateY(-2px);
 }
-a.job-card:hover { background: #FCFDFE; }
+a.job-card { display: block; text-decoration: none; color: inherit; }
 .external { color: var(--muted); font-size: 0.75em; margin-left: 3px; }
 .job-card:hover .external { color: var(--accent); }
 .job-card-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 1rem;
 }
-.job-title {
-    font-size: 0.95rem; font-weight: 600;
-    color: var(--ink); line-height: 1.35;
+.job-card-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.job-avatar {
+    width: 42px; height: 42px;
+    border-radius: 11px;
+    background: var(--accent-soft);
+    border: 1px solid #D7E9EF;
+    color: var(--accent-ink);
+    font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+    flex: none;
 }
-.job-company { font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
+.job-title {
+    font-size: 0.95rem; font-weight: 700;
+    color: var(--ink); line-height: 1.3;
+}
+.job-company { font-size: 0.83rem; color: var(--muted); margin-top: 2px; font-weight: 500; }
 .job-meta {
     display: flex; flex-wrap: wrap;
     font-size: 0.8rem; color: var(--muted);
-    margin-top: 0.55rem;
+    margin-top: 0.65rem;
+    padding-left: 54px;
 }
 .job-meta span + span::before {
     content: "·";
@@ -197,16 +250,17 @@ a.job-card:hover { background: #FCFDFE; }
     color: #CBD5E1;
 }
 .match-badge {
-    background: var(--accent-soft);
-    color: #0C5C74;
-    border: 1px solid #D7E9EF;
-    border-radius: 6px;
-    font-weight: 600; font-size: 0.8rem;
-    padding: 0.3rem 0.6rem;
+    border-radius: 999px;
+    font-weight: 700; font-size: 0.78rem;
+    padding: 0.32rem 0.7rem;
     white-space: nowrap;
     flex: none;
 }
+.match-high { background: #F0FDF4; color: #166534; border: 1px solid #BBF7D0; }
+.match-mid  { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid #D7E9EF; }
+.match-low  { background: #F8FAFC; color: #64748B; border: 1px solid #E2E8F0; }
 
+/* ---------- Applications ---------- */
 .application-row {
     display: flex;
     justify-content: space-between;
@@ -214,12 +268,14 @@ a.job-card:hover { background: #FCFDFE; }
     background: #ffffff;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 0.8rem 1rem;
-    margin-bottom: 0.5rem;
+    padding: 0.85rem 1.1rem;
+    margin-bottom: 0.55rem;
+    box-shadow: var(--shadow-1);
+    animation: rise 0.3s ease both;
 }
 .status-pill {
-    font-size: 0.75rem; font-weight: 600;
-    padding: 0.25rem 0.65rem;
+    font-size: 0.74rem; font-weight: 700;
+    padding: 0.28rem 0.7rem;
     border-radius: 999px;
     white-space: nowrap;
 }
@@ -228,12 +284,13 @@ a.job-card:hover { background: #FCFDFE; }
 .status-rejected  { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
 .status-offer     { background: #F0FDF4; color: #166534; border: 1px solid #BBF7D0; }
 
-/* ---------- Metrics, chat, expanders ---------- */
+/* ---------- Metrics, chat, expanders, alerts ---------- */
 [data-testid="stMetric"] {
     background: #ffffff;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 0.75rem 0.9rem;
+    box-shadow: var(--shadow-1);
 }
 [data-testid="stMetricLabel"] p {
     font-size: 0.7rem;
@@ -241,27 +298,42 @@ a.job-card:hover { background: #FCFDFE; }
     letter-spacing: 0.06em;
     color: var(--muted);
 }
-[data-testid="stMetricValue"] { font-weight: 600; }
+[data-testid="stMetricValue"] { font-weight: 700; }
 [data-testid="stChatMessage"] {
     background: #ffffff;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    box-shadow: none;
+    box-shadow: var(--shadow-1);
+}
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    background: var(--accent-soft);
+    border-color: #D7E9EF;
+}
+[data-testid="stChatInput"] textarea,
+[data-testid="stChatInput"] > div {
+    border-radius: var(--radius-sm);
 }
 [data-testid="stExpander"] {
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    background: #ffffff;
 }
+[data-testid="stExpander"] details summary span {
+    font-weight: 600;
+}
+[data-testid="stAlert"] { border-radius: var(--radius-sm); }
 
 /* ---------- Scrollbar & footer ---------- */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: #D6DBE1; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #B8C0C9; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #D2D9E0; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #B4BDC7; }
 .app-footer {
     text-align: center;
     color: #94A3B8;
     font-size: 0.78rem;
-    padding: 1.6rem 0 0.5rem 0;
+    padding: 1.8rem 0 0.5rem 0;
+    border-top: 1px solid var(--border);
+    margin-top: 2rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -614,12 +686,18 @@ st.markdown("""
     <div>
         <h1>Copilote Recherche d'Emploi</h1>
         <p>Assistant IA pour trouver, analyser et décrocher votre prochain poste — propulsé par Databricks.</p>
+        <div class="chips">
+            <span class="chip">🔎 Offres matchées</span>
+            <span class="chip">✍️ Lettres & CV</span>
+            <span class="chip">✉️ Relances</span>
+            <span class="chip">🎤 Entretiens</span>
+        </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Recherche d'offres", "Candidatures", "Mon Profil"])
+tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "🔎 Recherche d'offres", "📋 Candidatures", "👤 Mon Profil"])
 
 # Tab 1: Chat Interface
 with tab1:
@@ -746,14 +824,23 @@ with tab2:
                     if url else '<div class="job-card">'
                 )
                 card_close = '</a>' if url else '</div>'
+                score = job.get('match_score', 0) or 0
+                match_cls = (
+                    'match-high' if score >= 0.6
+                    else 'match-mid' if score >= 0.35
+                    else 'match-low'
+                )
                 st.markdown(f"""
                 {card_open}
                     <div class="job-card-header">
-                        <div>
-                            <div class="job-title">{i}. {job.get('title') or 'Poste'}{' <span class="external">↗</span>' if url else ''}</div>
-                            <div class="job-company">{job.get('company') or 'Entreprise non spécifiée'}</div>
+                        <div class="job-card-id">
+                            <div class="job-avatar">{(job.get('company') or '?').strip()[:1].upper()}</div>
+                            <div>
+                                <div class="job-title">{i}. {job.get('title') or 'Poste'}{' <span class="external">↗</span>' if url else ''}</div>
+                                <div class="job-company">{job.get('company') or 'Entreprise non spécifiée'}</div>
+                            </div>
                         </div>
-                        <span class="match-badge" title="Score de correspondance">{job.get('match_score', 0):.0%}</span>
+                        <span class="match-badge {match_cls}" title="Score de correspondance">{score:.0%}</span>
                     </div>
                     <div class="job-meta">
                         <span>{job.get('location') or '—'}</span>

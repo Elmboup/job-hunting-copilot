@@ -12,6 +12,7 @@ Connection model (Databricks Apps + Lakebase):
   (app_data) and creates its tables on first use.
 """
 
+import json
 import os
 from contextlib import contextmanager
 
@@ -78,6 +79,14 @@ CREATE TABLE IF NOT EXISTS {SCHEMA}.applications (
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (user_id, job_id)
 );
+
+-- Apec-style structured profile (added on existing deployments too)
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS summary TEXT;
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS current_title VARCHAR(255);
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS experiences JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS education JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS languages JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS certifications JSONB NOT NULL DEFAULT '[]'::jsonb;
 """
 
 _initialized = False
@@ -156,9 +165,11 @@ def save_profile(user_id, profile, skills, source="manual"):
                     INSERT INTO {SCHEMA}.profiles (
                         user_id, name, experience, target_roles,
                         location_preferences, remote_preference,
-                        contract_preference, resume_text
+                        contract_preference, resume_text,
+                        summary, current_title,
+                        experiences, education, languages, certifications
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (user_id) DO UPDATE SET
                         name = EXCLUDED.name,
                         experience = EXCLUDED.experience,
@@ -167,6 +178,12 @@ def save_profile(user_id, profile, skills, source="manual"):
                         remote_preference = EXCLUDED.remote_preference,
                         contract_preference = EXCLUDED.contract_preference,
                         resume_text = EXCLUDED.resume_text,
+                        summary = EXCLUDED.summary,
+                        current_title = EXCLUDED.current_title,
+                        experiences = EXCLUDED.experiences,
+                        education = EXCLUDED.education,
+                        languages = EXCLUDED.languages,
+                        certifications = EXCLUDED.certifications,
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     (
@@ -178,6 +195,12 @@ def save_profile(user_id, profile, skills, source="manual"):
                         profile.get("remote_preference"),
                         profile.get("contract_preference"),
                         profile.get("resume_text"),
+                        profile.get("summary"),
+                        profile.get("current_title"),
+                        json.dumps(profile.get("experiences") or []),
+                        json.dumps(profile.get("education") or []),
+                        json.dumps(profile.get("languages") or []),
+                        json.dumps(profile.get("certifications") or []),
                     ),
                 )
                 cur.execute(
@@ -200,6 +223,8 @@ def load_profile(email):
                 f"""
                 SELECT p.name, p.experience, p.target_roles, p.location_preferences,
                        p.remote_preference, p.contract_preference, p.resume_text,
+                       p.summary, p.current_title,
+                       p.experiences, p.education, p.languages, p.certifications,
                        COALESCE(
                            ARRAY_AGG(s.skill_name) FILTER (WHERE s.skill_name IS NOT NULL),
                            '{{}}'
@@ -210,7 +235,9 @@ def load_profile(email):
                 WHERE u.email = %s
                 GROUP BY p.profile_id, p.name, p.experience, p.target_roles,
                          p.location_preferences, p.remote_preference,
-                         p.contract_preference, p.resume_text
+                         p.contract_preference, p.resume_text, p.summary,
+                         p.current_title, p.experiences, p.education,
+                         p.languages, p.certifications
                 """,
                 (email,),
             )

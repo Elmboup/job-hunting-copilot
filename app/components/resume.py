@@ -91,19 +91,47 @@ def _ai_parse_document(data: bytes, mime_type: str) -> str:
 _SYSTEM_PROMPT = (
     "Tu es un assistant RH expert. Tu analyses des CV et tu réponds UNIQUEMENT "
     "avec un objet JSON valide, sans texte autour, sans markdown. "
-    "Format attendu : {\"skills\": [liste de compétences techniques et "
-    "linguistiques], \"name\": \"nom complet\", \"years_experience\": "
-    "\"années d'expérience\", \"current_title\": \"intitulé de poste actuel\", "
-    "\"summary\": \"résumé en une phrase\"}. Les skills doivent être des "
-    "termes courts (ex: 'Python', 'SQL', 'Spark', 'Docker', 'Anglais')."
+    "Format attendu (toutes les clés doivent être présentes, liste vide si "
+    "l'information est absente du CV) :\n"
+    "{\n"
+    "  \"name\": \"nom complet\",\n"
+    "  \"current_title\": \"intitulé de poste actuel\",\n"
+    "  \"years_experience\": \"années d'expérience (ex: '5 ans')\",\n"
+    "  \"summary\": \"résumé professionnel en 2 phrases\",\n"
+    "  \"skills\": [termes courts, techniques et linguistiques],\n"
+    "  \"experiences\": [{\"title\": \"poste\", \"company\": \"entreprise\", "
+    "\"start_date\": \"AAAA\", \"end_date\": \"AAAA ou 'Présent'\", "
+    "\"description\": \"1-2 phrases\"}],\n"
+    "  \"education\": [{\"degree\": \"diplôme\", \"school\": \"école/université\", "
+    "\"year\": \"AAAA\"}],\n"
+    "  \"languages\": [{\"name\": \"Anglais\", \"level\": \"Courant/C1/...\"}],\n"
+    "  \"certifications\": [{\"name\": \"certification\", \"issuer\": "
+    "\"organisme\", \"year\": \"AAAA\"}]\n"
+    "}\n"
+    "Les skills doivent être des termes courts (ex: 'Python', 'SQL', "
+    "'Spark', 'Docker', 'Anglais'). Respecte exactement les noms de clés."
 )
+
+def _normalize_cv_list(raw, fields):
+    """Coerce an LLM-returned list of dicts into rows with exactly `fields`."""
+    rows = []
+    if not isinstance(raw, list):
+        return rows
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        row = {f: str(item.get(f) or "").strip() for f in fields}
+        if any(row.values()):
+            rows.append(row)
+    return rows
 
 
 def extract_profile_from_resume(resume_text: str) -> dict:
-    """LLM extraction of skills/profile highlights from resume text.
+    """LLM extraction of a full structured profile (Apec-style) from a CV.
 
     Returns a dict with keys: skills (list[str]), name, years_experience,
-    current_title, summary — missing values are empty.
+    current_title, summary, experiences, education, languages,
+    certifications — missing values are empty.
     """
     host, token = get_host_and_token()
     resp = requests.post(
@@ -140,6 +168,19 @@ def extract_profile_from_resume(resume_text: str) -> dict:
         "years_experience": str(data.get("years_experience") or ""),
         "current_title": str(data.get("current_title") or ""),
         "summary": str(data.get("summary") or ""),
+        "experiences": _normalize_cv_list(
+            data.get("experiences"),
+            ("title", "company", "start_date", "end_date", "description"),
+        ),
+        "education": _normalize_cv_list(
+            data.get("education"), ("degree", "school", "year")
+        ),
+        "languages": _normalize_cv_list(
+            data.get("languages"), ("name", "level")
+        ),
+        "certifications": _normalize_cv_list(
+            data.get("certifications"), ("name", "issuer", "year")
+        ),
     }
 
 

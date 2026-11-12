@@ -11,6 +11,18 @@ def run_async(coro):
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(coro)
 
+
+def _cv_rows_from_editor(df, fields):
+    """Convert a data_editor DataFrame back to clean rows (drop empty lines)."""
+    rows = []
+    if df is None:
+        return rows
+    for record in df.to_dict("records"):
+        row = {f: str(record.get(f) or "").strip() for f in fields}
+        if any(row.values()):
+            rows.append(row)
+    return rows
+
 # Page config
 st.set_page_config(
     page_title="Copilote IA Recherche d'Emploi",
@@ -271,7 +283,13 @@ if 'user_profile' not in st.session_state:
         'location': 'Paris',
         'target_roles': ['Data Engineer', 'ML Engineer'],
         'contract_preference': 'CDI',
-        'remote_preference': 'Hybride'
+        'remote_preference': 'Hybride',
+        'current_title': '',
+        'summary': '',
+        'experiences': [],
+        'education': [],
+        'languages': [],
+        'certifications': []
     }
 if 'resume_text' not in st.session_state:
     st.session_state.resume_text = None
@@ -333,6 +351,13 @@ with st.sidebar:
                     st.session_state.user_profile['target_roles'] = saved['target_roles']
                 if saved.get('skills'):
                     st.session_state.user_profile['skills'] = list(saved['skills'])
+                if saved.get('current_title'):
+                    st.session_state.user_profile['current_title'] = saved['current_title']
+                if saved.get('summary'):
+                    st.session_state.user_profile['summary'] = saved['summary']
+                for _cv_key in ('experiences', 'education', 'languages', 'certifications'):
+                    if saved.get(_cv_key):
+                        st.session_state.user_profile[_cv_key] = list(saved[_cv_key])
                 if saved.get('resume_text'):
                     st.session_state.resume_text = saved['resume_text']
         except Exception:
@@ -340,9 +365,19 @@ with st.sidebar:
 
     # Editable profile
     with st.expander("Modifier le profil", expanded=False):
+        st.caption("Identité, critères de recherche et CV structuré — sauvegardé dans Lakebase.")
         st.session_state.user_profile['name'] = st.text_input(
             "Nom", 
             value=st.session_state.user_profile['name']
+        )
+        st.session_state.user_profile['current_title'] = st.text_input(
+            "Titre actuel (ex: Data Engineer)",
+            value=st.session_state.user_profile.get('current_title', '')
+        )
+        st.session_state.user_profile['summary'] = st.text_area(
+            "Résumé professionnel",
+            value=st.session_state.user_profile.get('summary', ''),
+            height=100,
         )
         
         st.session_state.user_profile['experience'] = st.text_input(
@@ -376,6 +411,81 @@ with st.sidebar:
         )
         st.session_state.user_profile['skills'] = [s.strip() for s in skills_input.split(',')]
 
+        import pandas as pd
+
+        st.markdown("**Expériences professionnelles**")
+        exp_df = st.data_editor(
+            pd.DataFrame(
+                st.session_state.user_profile.get('experiences') or [],
+                columns=['title', 'company', 'start_date', 'end_date', 'description'],
+            ),
+            column_config={
+                'title': st.column_config.TextColumn('Poste'),
+                'company': st.column_config.TextColumn('Entreprise'),
+                'start_date': st.column_config.TextColumn('Début'),
+                'end_date': st.column_config.TextColumn('Fin'),
+                'description': st.column_config.TextColumn('Description'),
+            },
+            num_rows='dynamic',
+            use_container_width=True,
+            key='exp_editor',
+        )
+        st.session_state.user_profile['experiences'] = _cv_rows_from_editor(
+            exp_df, ('title', 'company', 'start_date', 'end_date', 'description'))
+
+        st.markdown("**Formations**")
+        edu_df = st.data_editor(
+            pd.DataFrame(
+                st.session_state.user_profile.get('education') or [],
+                columns=['degree', 'school', 'year'],
+            ),
+            column_config={
+                'degree': st.column_config.TextColumn('Diplôme'),
+                'school': st.column_config.TextColumn('École / Université'),
+                'year': st.column_config.TextColumn('Année'),
+            },
+            num_rows='dynamic',
+            use_container_width=True,
+            key='edu_editor',
+        )
+        st.session_state.user_profile['education'] = _cv_rows_from_editor(
+            edu_df, ('degree', 'school', 'year'))
+
+        st.markdown("**Langues**")
+        lang_df = st.data_editor(
+            pd.DataFrame(
+                st.session_state.user_profile.get('languages') or [],
+                columns=['name', 'level'],
+            ),
+            column_config={
+                'name': st.column_config.TextColumn('Langue'),
+                'level': st.column_config.TextColumn('Niveau (A1-C2, Courant…)'),
+            },
+            num_rows='dynamic',
+            use_container_width=True,
+            key='lang_editor',
+        )
+        st.session_state.user_profile['languages'] = _cv_rows_from_editor(
+            lang_df, ('name', 'level'))
+
+        st.markdown("**Certifications**")
+        cert_df = st.data_editor(
+            pd.DataFrame(
+                st.session_state.user_profile.get('certifications') or [],
+                columns=['name', 'issuer', 'year'],
+            ),
+            column_config={
+                'name': st.column_config.TextColumn('Certification'),
+                'issuer': st.column_config.TextColumn('Organisme'),
+                'year': st.column_config.TextColumn('Année'),
+            },
+            num_rows='dynamic',
+            use_container_width=True,
+            key='cert_editor',
+        )
+        st.session_state.user_profile['certifications'] = _cv_rows_from_editor(
+            cert_df, ('name', 'issuer', 'year'))
+
         # Resume upload — parsing fills the profile fields automatically
         resume_file = st.file_uploader(
             "CV (PDF, DOCX, TXT) — extraction automatique des compétences",
@@ -397,9 +507,20 @@ with st.sidebar:
                         st.session_state.user_profile['name'] = extracted['name']
                     if extracted['years_experience']:
                         st.session_state.user_profile['experience'] = extracted['years_experience']
+                    if extracted.get('current_title'):
+                        st.session_state.user_profile['current_title'] = extracted['current_title']
+                    if extracted.get('summary'):
+                        st.session_state.user_profile['summary'] = extracted['summary']
+                    for _cv_key in ('experiences', 'education', 'languages', 'certifications'):
+                        if extracted.get(_cv_key):
+                            st.session_state.user_profile[_cv_key] = extracted[_cv_key]
                     st.success(
-                        f"CV analysé — {len(extracted['skills'])} compétences extraites. "
-                        "Les champs se mettent à jour au prochain rechargement."
+                        f"CV analysé — {len(extracted['skills'])} compétences, "
+                        f"{len(extracted.get('experiences', []))} expériences, "
+                        f"{len(extracted.get('education', []))} formations, "
+                        f"{len(extracted.get('languages', []))} langues, "
+                        f"{len(extracted.get('certifications', []))} certifications extraites. "
+                        "Vérifiez et complétez les sections ci-dessus."
                     )
                 except Exception as e:
                     st.error(f"Analyse du CV impossible : {e}")
@@ -418,6 +539,12 @@ with st.sidebar:
                 'remote_preference': st.session_state.user_profile['remote_preference'],
                 'contract_preference': st.session_state.user_profile['contract_preference'],
                 'resume_text': st.session_state.resume_text,
+                'current_title': st.session_state.user_profile.get('current_title', ''),
+                'summary': st.session_state.user_profile.get('summary', ''),
+                'experiences': st.session_state.user_profile.get('experiences') or [],
+                'education': st.session_state.user_profile.get('education') or [],
+                'languages': st.session_state.user_profile.get('languages') or [],
+                'certifications': st.session_state.user_profile.get('certifications') or [],
             }
             db_mod.save_profile(
                 user_id, profile,
@@ -435,6 +562,16 @@ with st.sidebar:
     st.write(f"**Localisation:** {st.session_state.user_profile['location']}")
     st.write(f"**Contrat:** {st.session_state.user_profile['contract_preference']}")
     st.write(f"**Télétravail:** {st.session_state.user_profile['remote_preference']}")
+    if st.session_state.user_profile.get('current_title'):
+        st.write(f"**Titre actuel:** {st.session_state.user_profile['current_title']}")
+    if st.session_state.user_profile.get('experiences'):
+        st.write(f"**Expériences détaillées:** {len(st.session_state.user_profile['experiences'])}")
+    if st.session_state.user_profile.get('education'):
+        st.write(f"**Formations:** {len(st.session_state.user_profile['education'])}")
+    if st.session_state.user_profile.get('languages'):
+        st.write(f"**Langues:** {len(st.session_state.user_profile['languages'])}")
+    if st.session_state.user_profile.get('certifications'):
+        st.write(f"**Certifications:** {len(st.session_state.user_profile['certifications'])}")
     
     st.markdown("**Compétences:**")
     for skill in st.session_state.user_profile['skills'][:5]:

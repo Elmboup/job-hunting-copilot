@@ -87,6 +87,22 @@ ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS experiences JSONB NOT NUL
 ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS education JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS languages JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS certifications JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS soft_skills TEXT[] DEFAULT '{{}}';
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS motivations TEXT;
+ALTER TABLE {SCHEMA}.profiles ADD COLUMN IF NOT EXISTS photo TEXT;
+
+-- Career documents: uploaded CVs, agent-generated letters/CVs, follow-up
+-- emails, interview prep guides.
+CREATE TABLE IF NOT EXISTS {SCHEMA}.documents (
+    document_id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES {SCHEMA}.users(user_id),
+    doc_type VARCHAR(50) NOT NULL,
+    title VARCHAR(500),
+    content TEXT,
+    file_name VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 _initialized = False
@@ -167,9 +183,10 @@ def save_profile(user_id, profile, skills, source="manual"):
                         location_preferences, remote_preference,
                         contract_preference, resume_text,
                         summary, current_title,
-                        experiences, education, languages, certifications
+                        experiences, education, languages, certifications,
+                        phone, soft_skills, motivations, photo
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (user_id) DO UPDATE SET
                         name = EXCLUDED.name,
                         experience = EXCLUDED.experience,
@@ -184,6 +201,10 @@ def save_profile(user_id, profile, skills, source="manual"):
                         education = EXCLUDED.education,
                         languages = EXCLUDED.languages,
                         certifications = EXCLUDED.certifications,
+                        phone = EXCLUDED.phone,
+                        soft_skills = EXCLUDED.soft_skills,
+                        motivations = EXCLUDED.motivations,
+                        photo = EXCLUDED.photo,
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     (
@@ -201,6 +222,10 @@ def save_profile(user_id, profile, skills, source="manual"):
                         json.dumps(profile.get("education") or []),
                         json.dumps(profile.get("languages") or []),
                         json.dumps(profile.get("certifications") or []),
+                        profile.get("phone"),
+                        profile.get("soft_skills") or [],
+                        profile.get("motivations"),
+                        profile.get("photo"),
                     ),
                 )
                 cur.execute(
@@ -225,6 +250,7 @@ def load_profile(email):
                        p.remote_preference, p.contract_preference, p.resume_text,
                        p.summary, p.current_title,
                        p.experiences, p.education, p.languages, p.certifications,
+                       p.phone, p.soft_skills, p.motivations, p.photo,
                        COALESCE(
                            ARRAY_AGG(s.skill_name) FILTER (WHERE s.skill_name IS NOT NULL),
                            '{{}}'
@@ -237,7 +263,8 @@ def load_profile(email):
                          p.location_preferences, p.remote_preference,
                          p.contract_preference, p.resume_text, p.summary,
                          p.current_title, p.experiences, p.education,
-                         p.languages, p.certifications
+                         p.languages, p.certifications, p.phone, p.soft_skills,
+                         p.motivations, p.photo
                 """,
                 (email,),
             )
@@ -331,5 +358,62 @@ def update_application(application_id, status=None, notes=None):
                 f"UPDATE {SCHEMA}.applications SET {', '.join(sets)} "
                 "WHERE application_id = %s",
                 params,
+            )
+        conn.commit()
+
+
+def save_document(user_id, doc_type, title, content, file_name=None):
+    """Store a career document (cv, lettre, cv_genere, mail_relance,
+    prep_entretien...). Returns the new document id."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                INSERT INTO {SCHEMA}.documents (user_id, doc_type, title, content, file_name)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING document_id
+                """,
+                (user_id, doc_type, title, content, file_name),
+            )
+            doc_id = cur.fetchone()[0]
+        conn.commit()
+        return doc_id
+
+
+def list_documents(user_id, doc_type=None):
+    """Documents for a user, newest first; optionally filtered by type."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            if doc_type:
+                cur.execute(
+                    f"""
+                    SELECT document_id, doc_type, title, content, file_name, created_at
+                    FROM {SCHEMA}.documents
+                    WHERE user_id = %s AND doc_type = %s
+                    ORDER BY created_at DESC
+                    """,
+                    (user_id, doc_type),
+                )
+            else:
+                cur.execute(
+                    f"""
+                    SELECT document_id, doc_type, title, content, file_name, created_at
+                    FROM {SCHEMA}.documents
+                    WHERE user_id = %s
+                    ORDER BY created_at DESC
+                    """,
+                    (user_id,),
+                )
+            columns = [d.name for d in cur.description]
+            return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def delete_document(document_id):
+    """Remove a stored document."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.documents WHERE document_id = %s",
+                (document_id,),
             )
         conn.commit()

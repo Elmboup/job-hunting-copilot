@@ -289,7 +289,11 @@ if 'user_profile' not in st.session_state:
         'experiences': [],
         'education': [],
         'languages': [],
-        'certifications': []
+        'certifications': [],
+        'phone': '',
+        'soft_skills': [],
+        'motivations': '',
+        'photo': ''
     }
 if 'resume_text' not in st.session_state:
     st.session_state.resume_text = None
@@ -358,6 +362,14 @@ with st.sidebar:
                 for _cv_key in ('experiences', 'education', 'languages', 'certifications'):
                     if saved.get(_cv_key):
                         st.session_state.user_profile[_cv_key] = list(saved[_cv_key])
+                if saved.get('phone'):
+                    st.session_state.user_profile['phone'] = saved['phone']
+                if saved.get('soft_skills'):
+                    st.session_state.user_profile['soft_skills'] = list(saved['soft_skills'])
+                if saved.get('motivations'):
+                    st.session_state.user_profile['motivations'] = saved['motivations']
+                if saved.get('photo'):
+                    st.session_state.user_profile['photo'] = saved['photo']
                 if saved.get('resume_text'):
                     st.session_state.resume_text = saved['resume_text']
         except Exception:
@@ -545,6 +557,10 @@ with st.sidebar:
                 'education': st.session_state.user_profile.get('education') or [],
                 'languages': st.session_state.user_profile.get('languages') or [],
                 'certifications': st.session_state.user_profile.get('certifications') or [],
+                'phone': st.session_state.user_profile.get('phone', ''),
+                'soft_skills': st.session_state.user_profile.get('soft_skills') or [],
+                'motivations': st.session_state.user_profile.get('motivations', ''),
+                'photo': st.session_state.user_profile.get('photo', ''),
             }
             db_mod.save_profile(
                 user_id, profile,
@@ -603,7 +619,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["Chat", "Recherche d'offres", "Candidatures"])
+tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Recherche d'offres", "Candidatures", "Mon Profil"])
 
 # Tab 1: Chat Interface
 with tab1:
@@ -788,6 +804,21 @@ with tab2:
                                 ))
                             if letter:
                                 st.markdown(letter)
+                                st.session_state[f'letter_{job["job_id"]}'] = letter
+                                try:
+                                    from components import db as _db_doc
+                                    _uid = _db_doc.get_user_id(
+                                        _db_doc.current_user_email(),
+                                        st.session_state.user_profile['name'],
+                                    )
+                                    _db_doc.save_document(
+                                        _uid, 'lettre',
+                                        f"Lettre — {job.get('title') or 'Poste'} @ {job.get('company') or ''}",
+                                        letter,
+                                    )
+                                    st.success("Lettre enregistrée dans Mon Profil → Documents.")
+                                except Exception as e:
+                                    st.warning(f"Lettre générée mais non enregistrée : {e}")
                             else:
                                 st.warning("Impossible de générer la lettre — demandez-la dans le chat.")
                     with col_c:
@@ -873,10 +904,203 @@ with tab3:
                     key=f"notes_{app_row['application_id']}_input",
                     height=100,
                 )
+                col_m, col_i = st.columns(2)
+                with col_m:
+                    if st.button("✉️ Mail de relance", key=f"relance_{app_row['application_id']}"):
+                        from components import generators  # lazy import
+                        with st.spinner("Rédaction du mail de relance…"):
+                            try:
+                                mail = generators.generate_followup_email(
+                                    st.session_state.user_profile, app_row)
+                                st.markdown(mail)
+                                db_mod.save_document(
+                                    user_id, 'mail_relance',
+                                    f"Relance — {app_row['title'] or 'Poste'} @ {app_row['company'] or ''}",
+                                    mail,
+                                )
+                                st.success("Mail enregistré dans Mon Profil → Documents.")
+                            except Exception as e:
+                                st.error(f"Génération impossible : {e}")
+                with col_i:
+                    if st.button("🎤 Préparer l'entretien", key=f"prep_{app_row['application_id']}"):
+                        from components import generators  # lazy import
+                        with st.spinner("Préparation de l'entretien (RH + technique)…"):
+                            try:
+                                prep = generators.generate_interview_prep(
+                                    st.session_state.user_profile, app_row)
+                                st.markdown(prep)
+                                db_mod.save_document(
+                                    user_id, 'prep_entretien',
+                                    f"Préparation — {app_row['title'] or 'Poste'} @ {app_row['company'] or ''}",
+                                    prep,
+                                )
+                                st.success("Guide enregistré dans Mon Profil → Documents.")
+                            except Exception as e:
+                                st.error(f"Génération impossible : {e}")
     elif user_id is not None:
         st.info(
             "Aucune candidature pour l'instant. Sauvegardez des offres depuis "
             "l'onglet « Recherche d'offres » → Détails → Sauvegarder."
+        )
+
+# Tab 4: Mon Profil — photo, coordonnées, documents, générations de l'Agent
+with tab4:
+    st.markdown("### 👤 Mon Profil")
+    st.caption(
+        "Votre espace carrière : photo, coordonnées, documents et créations de l'Agent. "
+        "Les sections détaillées (expériences, formations, langues, certifications) "
+        "s'éditent dans « Modifier le profil » de la barre latérale."
+    )
+
+    col_photo, col_id = st.columns([1, 3])
+    with col_photo:
+        st.markdown("**📸 Photo**")
+        photo_file = st.file_uploader(
+            "Photo de profil (optionnel)", type=["png", "jpg", "jpeg"],
+            key="photo_uploader",
+        )
+        if photo_file is not None and st.session_state.get('photo_name') != photo_file.name:
+            import base64 as _b64
+            _ext = photo_file.name.rsplit('.', 1)[-1].lower()
+            st.session_state.user_profile['photo'] = (
+                f"data:image/{_ext};base64,"
+                + _b64.b64encode(photo_file.getvalue()).decode()
+            )
+            st.session_state.photo_name = photo_file.name
+        _photo = st.session_state.user_profile.get('photo') or ''
+        if _photo.startswith('data:'):
+            import base64 as _b64
+            st.image(_b64.b64decode(_photo.split(',', 1)[1]), width=180)
+        elif _photo:
+            st.caption("Photo enregistrée — sauvegardez pour l'afficher au prochain chargement.")
+        if _photo and st.button("Retirer la photo"):
+            st.session_state.user_profile['photo'] = ''
+            st.session_state.photo_name = None
+            st.rerun()
+
+    with col_id:
+        st.markdown("**👤 Informations personnelles**")
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            st.session_state.user_profile['phone'] = st.text_input(
+                "Téléphone", value=st.session_state.user_profile.get('phone', ''),
+                key="phone_input",
+            )
+        with cc2:
+            st.session_state.user_profile['name'] = st.text_input(
+                "Nom complet", value=st.session_state.user_profile['name'],
+                key="name_input",
+            )
+        st.session_state.user_profile['motivations'] = st.text_area(
+            "📝 À propos — pitch personnel, motivations",
+            value=st.session_state.user_profile.get('motivations', ''),
+            height=100, key="motivations_input",
+        )
+        soft_input = st.text_input(
+            "💪 Soft skills (séparées par des virgules)",
+            value=', '.join(st.session_state.user_profile.get('soft_skills') or []),
+            key="soft_input",
+        )
+        st.session_state.user_profile['soft_skills'] = [
+            s.strip() for s in soft_input.split(',') if s.strip()
+        ]
+        st.caption("💡 Pensez à « Sauvegarder le profil » dans la barre latérale.")
+
+    # --- Documents ---
+    st.markdown("---")
+    st.markdown("### 📄 CV & Documents")
+    try:
+        from components import db as db_pro
+        uid_pro = db_pro.get_user_id(
+            db_pro.current_user_email(),
+            st.session_state.user_profile['name'],
+        )
+        docs = db_pro.list_documents(uid_pro)
+    except Exception as e:
+        db_pro, uid_pro, docs = None, None, []
+        st.info(f"Documents indisponibles : {e}")
+
+    DOC_LABELS = {
+        'cv': 'CV téléversés',
+        'lettre': 'Lettres de motivation',
+        'cv_genere': "CV générés par l'Agent",
+        'mail_relance': 'Mails de relance',
+        'prep_entretien': "Préparations d'entretien",
+    }
+    if docs:
+        from collections import OrderedDict
+        grouped = OrderedDict()
+        for d in docs:
+            grouped.setdefault(d['doc_type'], []).append(d)
+        for dtype, rows in grouped.items():
+            st.markdown(f"**{DOC_LABELS.get(dtype, dtype)} ({len(rows)})**")
+            for d in rows:
+                with st.expander(
+                    f"📄 {d['title'] or 'Document'} — {str(d['created_at'])[:10]}"
+                ):
+                    if d.get('content'):
+                        st.markdown(d['content'])
+                    dcol1, dcol2 = st.columns(2)
+                    with dcol1:
+                        if d.get('content'):
+                            st.download_button(
+                                "⬇️ Télécharger (.md)",
+                                data=d['content'],
+                                file_name=(
+                                    (d['file_name'] or (d['title'] or 'document'))
+                                    .replace(' ', '_') + '.md'
+                                ),
+                                key=f"dl_{d['document_id']}",
+                            )
+                    with dcol2:
+                        if st.button("🗑️ Supprimer", key=f"del_{d['document_id']}"):
+                            db_pro.delete_document(d['document_id'])
+                            st.rerun()
+    else:
+        st.info(
+            "Aucun document pour l'instant. Générez une lettre depuis « Recherche "
+            "d'offres », un mail de relance ou une préparation d'entretien depuis "
+            "« Candidatures », ou un CV adapté ci-dessous."
+        )
+
+    # --- CV generator ---
+    st.markdown("---")
+    st.markdown("### ✨ Générer un CV avec l'Agent")
+    gen_title = st.text_input(
+        "Poste visé",
+        value=', '.join(st.session_state.user_profile.get('target_roles') or [])
+        or 'Data Engineer',
+    )
+    gen_desc = st.text_area("Description de l'offre (optionnel)", height=80)
+    if st.button("✨ Générer le CV adapté", type="primary"):
+        if not (
+            st.session_state.user_profile.get('experiences')
+            or st.session_state.user_profile.get('skills')
+        ):
+            st.warning(
+                "Complétez d'abord votre profil (expériences / compétences) dans "
+                "la barre latérale, puis réessayez."
+            )
+        else:
+            from components import generators  # lazy import
+            with st.spinner("Rédaction du CV…"):
+                try:
+                    cv_md = generators.generate_tailored_cv(
+                        st.session_state.user_profile, gen_title, gen_desc)
+                    st.session_state['generated_cv'] = cv_md
+                    if uid_pro is not None:
+                        db_pro.save_document(
+                            uid_pro, 'cv_genere', f"CV adapté — {gen_title}", cv_md)
+                        st.success("CV enregistré dans Documents.")
+                except Exception as e:
+                    st.error(f"Génération impossible : {e}")
+    if st.session_state.get('generated_cv'):
+        st.markdown(st.session_state['generated_cv'])
+        st.download_button(
+            "⬇️ Télécharger le CV (.md)",
+            data=st.session_state['generated_cv'],
+            file_name="cv_genere.md",
+            key="dl_gen_cv",
         )
 
 # Footer

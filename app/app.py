@@ -1425,38 +1425,40 @@ with tab5:
                             f"- {i['interaction_date']} · {i['interaction_type']} "
                             f"({i.get('direction') or '—'}) — {(i.get('summary') or '')[:160]}"
                         )
-                    with st.expander("➕ Ajouter une interaction"):
-                        with st.form(f"rint_{p['process_id']}", clear_on_submit=True):
-                            iA, iB, iC = st.columns(3)
-                            with iA:
-                                ai_type = st.selectbox("Type", rdb.INTERACTION_TYPES)
-                                ai_dir = st.selectbox("Sens", rdb.INTERACTION_DIRECTIONS)
-                            with iB:
-                                ai_date = st.date_input("Date", None)
-                                ai_sentiment = st.selectbox("Sentiment", ["Positif", "Neutre", "Négatif"])
-                            with iC:
-                                ai_next = st.date_input("Prochaine relance", None, key=f"ainf_{p['process_id']}")
-                            ai_summary = st.text_area("Résumé")
-                            ai_actions = st.text_input("Actions à faire")
-                            if st.form_submit_button("Enregistrer l'interaction", type="primary"):
-                                try:
-                                    rdb.save_interaction(rid, {
-                                        "process_id": p["process_id"],
-                                        "contact_id": p.get("contact_id"),
-                                        "interaction_date": ai_date,
-                                        "interaction_type": ai_type,
-                                        "direction": ai_dir,
-                                        "summary": ai_summary,
-                                        "action_items": ai_actions,
-                                        "sentiment": ai_sentiment,
-                                        "next_followup": ai_next,
-                                    })
-                                    if ai_next:
-                                        rdb.update_process(p["process_id"], next_followup=ai_next)
-                                    st.success("Interaction enregistrée.")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Enregistrement impossible : {e}")
+                    # NOTE: Streamlit forbids expanders inside expanders —
+                    # keep the form directly inside the process expander.
+                    st.markdown("**➕ Ajouter une interaction**")
+                    with st.form(f"rint_{p['process_id']}", clear_on_submit=True):
+                        iA, iB, iC = st.columns(3)
+                        with iA:
+                            ai_type = st.selectbox("Type", rdb.INTERACTION_TYPES)
+                            ai_dir = st.selectbox("Sens", rdb.INTERACTION_DIRECTIONS)
+                        with iB:
+                            ai_date = st.date_input("Date", None)
+                            ai_sentiment = st.selectbox("Sentiment", ["Positif", "Neutre", "Négatif"])
+                        with iC:
+                            ai_next = st.date_input("Prochaine relance", None, key=f"ainf_{p['process_id']}")
+                        ai_summary = st.text_area("Résumé")
+                        ai_actions = st.text_input("Actions à faire")
+                        if st.form_submit_button("Enregistrer l'interaction", type="primary"):
+                            try:
+                                rdb.save_interaction(rid, {
+                                    "process_id": p["process_id"],
+                                    "contact_id": p.get("contact_id"),
+                                    "interaction_date": ai_date,
+                                    "interaction_type": ai_type,
+                                    "direction": ai_dir,
+                                    "summary": ai_summary,
+                                    "action_items": ai_actions,
+                                    "sentiment": ai_sentiment,
+                                    "next_followup": ai_next,
+                                })
+                                if ai_next:
+                                    rdb.update_process(p["process_id"], next_followup=ai_next)
+                                st.success("Interaction enregistrée.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Enregistrement impossible : {e}")
                     if st.button("🗑️ Supprimer le processus", key=f"rdelp_{p['process_id']}"):
                         rdb.delete_process(p["process_id"])
                         st.rerun()
@@ -1547,35 +1549,36 @@ with tab5:
                                 f"{cm['interaction_count']} interactions · "
                                 f"{ct.get('email') or ''}"
                             )
-                    with st.expander("➕ Ajouter un contact"):
-                        with st.form(f"rnewc_{c['company_id']}", clear_on_submit=True):
-                            ac_name = st.text_input("Nom *")
-                            ac_role = st.selectbox("Rôle", rdb.CONTACT_ROLES)
-                            acA, acB = st.columns(2)
-                            with acA:
-                                ac_email = st.text_input("Email")
-                                ac_phone = st.text_input("Téléphone")
-                            with acB:
-                                ac_linkedin = st.text_input("LinkedIn (URL)")
-                            ac_notes = st.text_area("Notes")
-                            if st.form_submit_button("Enregistrer le contact", type="primary"):
-                                if not ac_name.strip():
-                                    st.error("Le nom est obligatoire.")
-                                else:
-                                    try:
-                                        rdb.save_contact(rid, {
-                                            "company_id": c["company_id"],
-                                            "name": ac_name.strip(),
-                                            "role": ac_role,
-                                            "email": ac_email or None,
-                                            "linkedin": ac_linkedin or None,
-                                            "phone": ac_phone or None,
-                                            "notes": ac_notes,
-                                        })
-                                        st.success("Contact enregistré.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Enregistrement impossible : {e}")
+                    # NOTE: same nesting rule — form directly inside the company expander.
+                    st.markdown("**➕ Ajouter un contact**")
+                    with st.form(f"rnewc_{c['company_id']}", clear_on_submit=True):
+                        ac_name = st.text_input("Nom *")
+                        ac_role = st.selectbox("Rôle", rdb.CONTACT_ROLES)
+                        acA, acB = st.columns(2)
+                        with acA:
+                            ac_email = st.text_input("Email")
+                            ac_phone = st.text_input("Téléphone")
+                        with acB:
+                            ac_linkedin = st.text_input("LinkedIn (URL)")
+                        ac_notes = st.text_area("Notes")
+                        if st.form_submit_button("Enregistrer le contact", type="primary"):
+                            if not ac_name.strip():
+                                st.error("Le nom est obligatoire.")
+                            else:
+                                try:
+                                    rdb.save_contact(rid, {
+                                        "company_id": c["company_id"],
+                                        "name": ac_name.strip(),
+                                        "role": ac_role,
+                                        "email": ac_email or None,
+                                        "linkedin": ac_linkedin or None,
+                                        "phone": ac_phone or None,
+                                        "notes": ac_notes,
+                                    })
+                                    st.success("Contact enregistré.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Enregistrement impossible : {e}")
                     if st.button("🗑️ Supprimer l'ESN", key=f"rdelco_{c['company_id']}"):
                         rdb.delete_consulting_company(c["company_id"])
                         st.rerun()

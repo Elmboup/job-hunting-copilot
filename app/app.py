@@ -1250,7 +1250,8 @@ with tab5:
     st.markdown("### 🤝 ESN & Recruteurs")
     st.caption(
         "Suivi des processus de recrutement avec les ESN : entreprises, contacts, "
-        "interactions, relances, scores et aide à la décision."
+        "interactions, relances, scores et aide à la décision. "
+        "🤖 = calculé par l'IA (modifiable) · ✍️ = votre valeur (l'IA ne l'écrase jamais)."
     )
 
     from components import db as rdb
@@ -1309,6 +1310,14 @@ with tab5:
                     ),
                     "Compat.": f"{m['compatibility']:.0%}",
                     "Délai moy. (j)": m["avg_response_days"] if m["avg_response_days"] is not None else "—",
+                    "Mon intérêt ✍️": (
+                        f"{m['interest_level']:.0%}"
+                        if m.get("interest_level") is not None else "—"
+                    ),
+                    "Ma priorité ✍️": (
+                        f"{m['priority']:.0%}"
+                        if m.get("priority") is not None else "—"
+                    ),
                 })
             if comp_rows:
                 st.dataframe(comp_rows, use_container_width=True, hide_index=True)
@@ -1376,15 +1385,66 @@ with tab5:
                 )
                 with st.expander(title):
                     st.progress(m["stage_progress"])
-                    colp1, colp2, colp3 = st.columns(3)
-                    colp1.metric("Prob. offre", f"{m['offer_probability']:.0%}")
-                    colp2.metric("Risque vivier", f"{m['talent_pool_probability']:.0%}")
-                    colp3.metric("Interactions", m["interaction_count"])
+                    colp1, colp2, colp3, colp4 = st.columns(4)
+                    op_ico = "✍️" if m.get("offer_probability_mode") == "manual" else "🤖"
+                    mf_ico = "✍️" if m.get("mission_fit_mode") == "manual" else "🤖"
+                    colp1.metric(f"Prob. offre {op_ico}", f"{m['offer_probability']:.0%}")
+                    colp2.metric(f"Adéquation mission {mf_ico}", f"{m['mission_fit']:.0%}")
+                    colp3.metric("Risque vivier", f"{m['talent_pool_probability']:.0%}")
+                    colp4.metric("Interactions", m["interaction_count"])
                     st.caption(
                         f"Mission : {p.get('mission') or '—'} · Client : {p.get('client') or '—'} · "
                         f"Salaire visé : {p.get('expected_salary') or '—'} € · "
                         f"Localisation : {p.get('location') or '—'} ({p.get('remote') or '?'})"
                     )
+
+                    # --- Objective scores: Auto (AI) / Manual (you) -------------
+                    # A manual value is LOCKED until the user switches the
+                    # toggle back to Auto; the AI never overwrites it.
+                    for r_key, r_label in (
+                        ("offer_probability", "Probabilité d'offre"),
+                        ("mission_fit", "Adéquation mission"),
+                    ):
+                        r_mode = m.get(f"{r_key}_mode", "auto")
+                        r_tog = st.toggle(
+                            f"✍️ Mode manuel — {r_label}",
+                            value=(r_mode == "manual"),
+                            key=f"rmtog_{r_key}_{p['process_id']}",
+                        )
+                        if r_tog:
+                            r_cur = int(round((m.get(r_key) or 0) * 100))
+                            r_val = st.slider(
+                                f"{r_label} (%)", 0, 100, r_cur, 5,
+                                key=f"rmsl_{r_key}_{p['process_id']}",
+                            )
+                            if st.button("💾 Verrouiller cette valeur", key=f"rmsv_{r_key}_{p['process_id']}"):
+                                rdb.save_metric_override(rid, {
+                                    "entity_type": "process",
+                                    "entity_id": p["process_id"],
+                                    "metric_key": r_key,
+                                    "value": r_val,
+                                })
+                                st.success("Valeur manuelle enregistrée — verrouillée jusqu'au retour au mode auto.")
+                                st.rerun()
+                        elif r_mode == "manual":
+                            # toggle switched OFF → back to automatic mode
+                            rdb.delete_metric_override(rid, "process", p["process_id"], r_key)
+                            st.success(f"{r_label} : retour au calcul automatique.")
+                            st.rerun()
+                        if st.checkbox("❓ Pourquoi ce score ?", key=f"rmwhy_{r_key}_{p['process_id']}"):
+                            st.markdown("**Facteurs utilisés :**")
+                            for f_line in m.get(f"{r_key}_factors") or []:
+                                st.markdown(f"- {f_line}")
+                            if r_mode == "manual":
+                                st.caption(
+                                    f"Valeur manuelle (le "
+                                    f"{m.get(f'{r_key}_manual_at') or '—'}) — le calcul automatique "
+                                    f"donnerait {(m.get(f'{r_key}_auto') or 0):.0%} (pour référence)."
+                                )
+                            else:
+                                st.caption(
+                                    "Score calculé automatiquement — active le mode manuel pour le verrouiller."
+                                )
                     colE, colF, colG, colH = st.columns(4)
                     with colE:
                         new_stage = st.selectbox(
@@ -1527,6 +1587,106 @@ with tab5:
                     if (c.get("notes") or "").strip():
                         st.caption(f"📝 {c['notes']}")
 
+                    # --- My evaluation (user-owned subjective metrics) --------
+                    st.markdown("**✍️ Mon évaluation (à moi)**")
+                    st.caption(
+                        "Attractivité, intérêt, priorité, notes : ces valeurs "
+                        "appartiennent à l'utilisateur. L'IA peut suggérer des "
+                        "valeurs initiales, mais ne modifie jamais ce qui est saisi."
+                    )
+                    sv1, sv2, sv3 = st.columns(3)
+                    with sv1:
+                        u_att = st.slider(
+                            "Attractivité", 0, 100,
+                            value=int((m.get("attractiveness") or 0) * 100),
+                            key=f"att_{c['company_id']}",
+                        )
+                    with sv2:
+                        u_int = st.slider(
+                            "Mon intérêt", 0, 100,
+                            value=int((m.get("interest_level") or 0) * 100),
+                            key=f"int_{c['company_id']}",
+                        )
+                    with sv3:
+                        u_prio = st.slider(
+                            "Priorité", 0, 100,
+                            value=int((m.get("priority") or 0) * 100),
+                            key=f"prio_{c['company_id']}",
+                        )
+                    u_notes = st.text_area(
+                        "Notes personnelles",
+                        value=m.get("personal_notes") or "",
+                        key=f"pnotes_{c['company_id']}",
+                    )
+                    evcol1, evcol2 = st.columns(2)
+                    with evcol1:
+                        if st.button("💾 Enregistrer mon évaluation", key=f"evsave_{c['company_id']}"):
+                            for _k, _v in (("attractiveness", u_att),
+                                           ("interest_level", u_int),
+                                           ("priority", u_prio)):
+                                rdb.save_metric_override(rid, {
+                                    "entity_type": "company",
+                                    "entity_id": c["company_id"],
+                                    "metric_key": _k,
+                                    "value": _v,
+                                })
+                            rdb.save_metric_override(rid, {
+                                "entity_type": "company",
+                                "entity_id": c["company_id"],
+                                "metric_key": "personal_notes",
+                                "value": None,
+                                "value_text": u_notes,
+                            })
+                            st.success("Évaluation enregistrée.")
+                            st.rerun()
+                    with evcol2:
+                        if st.button("🤖 Suggestion IA (champs vides uniquement)", key=f"evai_{c['company_id']}"):
+                            try:
+                                from components import generators as rgen
+                                c_procs = [
+                                    pr for pr in r_snapshot["processes"]
+                                    if pr.get("company_id") == c["company_id"]
+                                ]
+                                sug = rgen.suggest_company_scores(
+                                    c, c_procs, st.session_state.user_profile
+                                )
+                                st.session_state[f"sug_{c['company_id']}"] = sug
+                            except Exception as e:
+                                st.error(f"Suggestion impossible : {e}")
+                    sug = st.session_state.get(f"sug_{c['company_id']}")
+                    if sug:
+                        st.info(
+                            "Suggestions de l'IA (indicatives) : "
+                            f"attractivité **{sug.get('attractiveness')}** · "
+                            f"intérêt **{sug.get('interest_level')}** · "
+                            f"priorité **{sug.get('priority')}**"
+                        )
+                        for _k, _lbl in (("attractiveness", "Attractivité"),
+                                         ("interest_level", "Intérêt"),
+                                         ("priority", "Priorité")):
+                            why = (sug.get("explanations") or {}).get(_k)
+                            if why:
+                                st.caption(f"*{_lbl}* : {why}")
+                        unset = [
+                            (_k, sug[_k]) for _k in ("attractiveness", "interest_level", "priority")
+                            if sug.get(_k) is not None and m.get(_k) is None
+                        ]
+                        if unset:
+                            if st.button("✅ Appliquer aux champs non remplis", key=f"evapply_{c['company_id']}"):
+                                for _k, _v in unset:
+                                    rdb.save_metric_override(rid, {
+                                        "entity_type": "company",
+                                        "entity_id": c["company_id"],
+                                        "metric_key": _k,
+                                        "value": _v,
+                                        "rationale": (sug.get("explanations") or {}).get(_k),
+                                    })
+                                del st.session_state[f"sug_{c['company_id']}"]
+                                st.success("Suggestions appliquées aux champs vides uniquement.")
+                                st.rerun()
+                        else:
+                            st.caption("Tous les champs sont déjà remplis — rien à appliquer.")
+
                     c_contacts = [
                         ct for ct in r_snapshot["contacts"]
                         if ct["company_id"] == c["company_id"]
@@ -1537,7 +1697,8 @@ with tab5:
                         if cm["ghosted"]:
                             state = "👻 à relancer"
                         else:
-                            state = f"fiabilité {cm['reliability']:.0%}"
+                            state = "réactif"
+                        comm_ico = "✍️" if cm.get("communication_score_mode") == "manual" else "🤖"
                         delc, cinfo = st.columns([1, 8])
                         with delc:
                             if st.button("🗑️", key=f"rdelc_{ct['contact_id']}"):
@@ -1545,10 +1706,46 @@ with tab5:
                                 st.rerun()
                         with cinfo:
                             st.markdown(
-                                f"**{ct['name']}** ({ct.get('role') or '—'}) — {state} · "
+                                f"**{ct['name']}** ({ct.get('role') or '—'}) — "
+                                f"communication {cm['communication_score']:.0%} {comm_ico} · {state} · "
                                 f"{cm['interaction_count']} interactions · "
                                 f"{ct.get('email') or ''}"
                             )
+                        # Auto/Manual override for the communication score
+                        ctog = st.toggle(
+                            "✍️ Score de communication manuel",
+                            value=(cm.get("communication_score_mode") == "manual"),
+                            key=f"cman_{ct['contact_id']}",
+                        )
+                        if ctog:
+                            cnv = st.slider(
+                                "Communication (%)", 0, 100,
+                                int(round((cm.get("communication_score") or 0) * 100)), 5,
+                                key=f"csl_{ct['contact_id']}",
+                            )
+                            if st.button("💾 Verrouiller", key=f"csv_{ct['contact_id']}"):
+                                rdb.save_metric_override(rid, {
+                                    "entity_type": "contact",
+                                    "entity_id": ct["contact_id"],
+                                    "metric_key": "communication_score",
+                                    "value": cnv,
+                                })
+                                st.success("Score manuel verrouillé.")
+                                st.rerun()
+                        elif cm.get("communication_score_mode") == "manual":
+                            rdb.delete_metric_override(
+                                rid, "contact", ct["contact_id"], "communication_score"
+                            )
+                            st.success("Retour au calcul automatique.")
+                            st.rerun()
+                        if st.checkbox("❓ Pourquoi ce score ?", key=f"cwhy_{ct['contact_id']}"):
+                            for f_line in cm.get("communication_factors") or []:
+                                st.markdown(f"- {f_line}")
+                            if cm.get("communication_score_mode") == "manual":
+                                st.caption(
+                                    f"Valeur manuelle — le calcul automatique donnerait "
+                                    f"{(cm.get('communication_score_auto') or 0):.0%} (pour référence)."
+                                )
                     # NOTE: same nesting rule — form directly inside the company expander.
                     st.markdown("**➕ Ajouter un contact**")
                     with st.form(f"rnewc_{c['company_id']}", clear_on_submit=True):

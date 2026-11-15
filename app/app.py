@@ -1395,8 +1395,74 @@ with tab5:
                     st.caption(
                         f"Mission : {p.get('mission') or '—'} · Client : {p.get('client') or '—'} · "
                         f"Salaire visé : {p.get('expected_salary') or '—'} € · "
-                        f"Localisation : {p.get('location') or '—'} ({p.get('remote') or '?'})"
+                        f"Localisation : {p.get('location') or '—'} ({p.get('remote') or '?'}) · "
+                        f"Stack : {', '.join(p.get('technologies') or []) or '—'}"
                     )
+
+                    # --- Inline edit of the presented mission ------------------
+                    if st.checkbox("✏️ Modifier la mission", key=f"pedit_t_{p['process_id']}"):
+                        with st.form(f"pedit_{p['process_id']}"):
+                            pmA, pmB = st.columns(2)
+                            with pmA:
+                                pm_type = st.selectbox(
+                                    "Type de recrutement", rdb.RECRUITMENT_TYPES,
+                                    index=(rdb.RECRUITMENT_TYPES.index(p.get("recruitment_type"))
+                                           if p.get("recruitment_type") in rdb.RECRUITMENT_TYPES else 0),
+                                    key=f"pmi_ty_{p['process_id']}",
+                                )
+                                pm_salary = st.number_input(
+                                    "Salaire visé (€/an)", 0, 300000,
+                                    int(p.get("expected_salary") or 0), step=1000,
+                                    key=f"pmi_sa_{p['process_id']}",
+                                )
+                                pm_mission = st.text_area(
+                                    "Mission", value=p.get("mission") or "",
+                                    key=f"pmi_mi_{p['process_id']}",
+                                )
+                            with pmB:
+                                pm_client = st.text_input(
+                                    "Client", value=p.get("client") or "",
+                                    key=f"pmi_cl_{p['process_id']}",
+                                )
+                                pm_location = st.text_input(
+                                    "Localisation", value=p.get("location") or "",
+                                    key=f"pmi_lo_{p['process_id']}",
+                                )
+                                remote_p_opts = ["Remote", "Hybride", "Sur site"]
+                                cur_remote_p = p.get("remote") or remote_p_opts[0]
+                                if cur_remote_p not in remote_p_opts:
+                                    remote_p_opts.append(cur_remote_p)
+                                pm_remote = st.selectbox(
+                                    "Télétravail", remote_p_opts,
+                                    index=remote_p_opts.index(cur_remote_p),
+                                    key=f"pmi_re_{p['process_id']}",
+                                )
+                                pm_tech = st.text_input(
+                                    "Technologies (séparées par des virgules)",
+                                    value=", ".join(p.get("technologies") or []),
+                                    key=f"pmi_te_{p['process_id']}",
+                                )
+                            pm_comments = st.text_area(
+                                "Commentaires", value=p.get("comments") or "",
+                                key=f"pmi_co_{p['process_id']}",
+                            )
+                            if st.form_submit_button("💾 Enregistrer la mission", type="primary"):
+                                try:
+                                    rdb.update_process(
+                                        p["process_id"],
+                                        recruitment_type=pm_type,
+                                        expected_salary=pm_salary or None,
+                                        mission=pm_mission,
+                                        client=pm_client,
+                                        location=pm_location,
+                                        remote=pm_remote,
+                                        technologies=[t.strip() for t in pm_tech.split(",") if t.strip()],
+                                        comments=pm_comments,
+                                    )
+                                    st.success("Mission enregistrée.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Enregistrement impossible : {e}")
 
                     # --- Objective scores: Auto (AI) / Manual (you) -------------
                     # A manual value is LOCKED until the user switches the

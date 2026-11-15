@@ -30,6 +30,24 @@ _DEFAULT_ENDPOINT = "projects/job-hunting-copilot/branches/production/endpoints/
 
 APPLICATION_STATUSES = ["En cours", "Entretien", "Offre", "Rejeté"]
 
+# Recruiter Intelligence — ESN recruitment tracking vocabulary
+PROCESS_STAGES = [
+    "Prospect", "Premier contact", "Entretien RH", "Entretien technique",
+    "Business Manager", "Présentation client", "Entretien client",
+    "Offre", "Accepté", "Rejeté",
+]
+PROCESS_STATUSES = ["Actif", "En pause", "Abandonné", "Conclu"]
+RECRUITMENT_TYPES = [
+    "Mission existante", "Vivier", "Recrutement interne",
+    "Opportunité future", "Pré-vente", "Accord-cadre",
+]
+CONTACT_ROLES = [
+    "Recruteur", "Talent Acquisition", "Business Manager",
+    "Delivery Manager", "Practice Lead", "Autre",
+]
+INTERACTION_TYPES = ["Appel", "Email", "Teams", "LinkedIn", "Autre"]
+INTERACTION_DIRECTIONS = ["envoyé", "reçu", "mutuel"]
+
 _DDL = f"""
 CREATE SCHEMA IF NOT EXISTS {SCHEMA};
 CREATE TABLE IF NOT EXISTS {SCHEMA}.users (
@@ -101,6 +119,68 @@ CREATE TABLE IF NOT EXISTS {SCHEMA}.documents (
     title VARCHAR(500),
     content TEXT,
     file_name VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Recruiter Intelligence: ESN recruitment tracking
+CREATE TABLE IF NOT EXISTS {SCHEMA}.consulting_companies (
+    company_id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES {SCHEMA}.users(user_id),
+    name VARCHAR(200) NOT NULL,
+    specialization VARCHAR(500),
+    sectors TEXT[] DEFAULT '{{}}',
+    technologies TEXT[] DEFAULT '{{}}',
+    salary_min INTEGER,
+    salary_max INTEGER,
+    remote_policy VARCHAR(100),
+    hiring_model VARCHAR(100),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, name)
+);
+CREATE TABLE IF NOT EXISTS {SCHEMA}.contacts (
+    contact_id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES {SCHEMA}.users(user_id),
+    company_id INTEGER NOT NULL REFERENCES {SCHEMA}.consulting_companies(company_id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL,
+    role VARCHAR(100),
+    email VARCHAR(255),
+    linkedin VARCHAR(500),
+    phone VARCHAR(50),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS {SCHEMA}.recruitment_processes (
+    process_id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES {SCHEMA}.users(user_id),
+    company_id INTEGER NOT NULL REFERENCES {SCHEMA}.consulting_companies(company_id) ON DELETE CASCADE,
+    contact_id INTEGER REFERENCES {SCHEMA}.contacts(contact_id) ON DELETE SET NULL,
+    stage VARCHAR(50) NOT NULL DEFAULT 'Prospect',
+    status VARCHAR(30) NOT NULL DEFAULT 'Actif',
+    recruitment_type VARCHAR(50),
+    expected_salary INTEGER,
+    mission TEXT,
+    technologies TEXT[] DEFAULT '{{}}',
+    client VARCHAR(200),
+    location VARCHAR(100),
+    remote VARCHAR(50),
+    next_followup DATE,
+    comments TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS {SCHEMA}.interactions (
+    interaction_id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES {SCHEMA}.users(user_id),
+    process_id INTEGER REFERENCES {SCHEMA}.recruitment_processes(process_id) ON DELETE CASCADE,
+    contact_id INTEGER REFERENCES {SCHEMA}.contacts(contact_id) ON DELETE SET NULL,
+    interaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    interaction_type VARCHAR(30) NOT NULL,
+    direction VARCHAR(10),
+    summary TEXT,
+    action_items TEXT,
+    sentiment VARCHAR(20),
+    next_followup DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -415,5 +495,367 @@ def delete_document(document_id):
             cur.execute(
                 f"DELETE FROM {SCHEMA}.documents WHERE document_id = %s",
                 (document_id,),
+            )
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Recruiter Intelligence — ESN recruitment tracking
+# ---------------------------------------------------------------------------
+
+def _fetch_dicts(cur, sql, params):
+    """Run a SELECT and return dict rows (shared by the recruiting queries)."""
+    cur.execute(sql, params)
+    columns = [d.name for d in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def list_consulting_companies(user_id):
+    """ESN companies tracked by the user, alphabetical."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            return _fetch_dicts(
+                cur,
+                f"""
+                SELECT company_id, name, specialization, sectors, technologies,
+                       salary_min, salary_max, remote_policy, hiring_model, notes,
+                       created_at
+                FROM {SCHEMA}.consulting_companies
+                WHERE user_id = %s
+                ORDER BY name
+                """,
+                (user_id,),
+            )
+
+
+def save_consulting_company(user_id, company):
+    """Upsert an ESN company by name. Returns the company id."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                INSERT INTO {SCHEMA}.consulting_companies (
+                    user_id, name, specialization, sectors, technologies,
+                    salary_min, salary_max, remote_policy, hiring_model, notes
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id, name) DO UPDATE SET
+                    specialization = EXCLUDED.specialization,
+                    sectors = EXCLUDED.sectors,
+                    technologies = EXCLUDED.technologies,
+                    salary_min = EXCLUDED.salary_min,
+                    salary_max = EXCLUDED.salary_max,
+                    remote_policy = EXCLUDED.remote_policy,
+                    hiring_model = EXCLUDED.hiring_model,
+                    notes = EXCLUDED.notes
+                RETURNING company_id
+                """,
+                (
+                    user_id,
+                    company.get("name"),
+                    company.get("specialization"),
+                    company.get("sectors") or [],
+                    company.get("technologies") or [],
+                    company.get("salary_min"),
+                    company.get("salary_max"),
+                    company.get("remote_policy"),
+                    company.get("hiring_model"),
+                    company.get("notes"),
+                ),
+            )
+            company_id = cur.fetchone()[0]
+        conn.commit()
+        return company_id
+
+
+def delete_consulting_company(company_id):
+    """Remove a company (cascades to its contacts and processes)."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.consulting_companies WHERE company_id = %s",
+                (company_id,),
+            )
+        conn.commit()
+
+
+def list_contacts(user_id, company_id=None):
+    """Recruiter contacts, optionally filtered by company."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            if company_id:
+                return _fetch_dicts(
+                    cur,
+                    f"""
+                    SELECT contact_id, company_id, name, role, email, linkedin,
+                           phone, notes, created_at
+                    FROM {SCHEMA}.contacts
+                    WHERE user_id = %s AND company_id = %s
+                    ORDER BY name
+                    """,
+                    (user_id, company_id),
+                )
+            return _fetch_dicts(
+                cur,
+                f"""
+                SELECT contact_id, company_id, name, role, email, linkedin,
+                       phone, notes, created_at
+                FROM {SCHEMA}.contacts
+                WHERE user_id = %s
+                ORDER BY name
+                """,
+                (user_id,),
+            )
+
+
+def save_contact(user_id, contact):
+    """Insert or update a contact by contact_id. Returns the contact id."""
+    contact_id = contact.get("contact_id")
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            if contact_id:
+                cur.execute(
+                    f"""
+                    UPDATE {SCHEMA}.contacts SET
+                        company_id = %s, name = %s, role = %s, email = %s,
+                        linkedin = %s, phone = %s, notes = %s
+                    WHERE contact_id = %s AND user_id = %s
+                    RETURNING contact_id
+                    """,
+                    (
+                        contact.get("company_id"),
+                        contact.get("name"),
+                        contact.get("role"),
+                        contact.get("email"),
+                        contact.get("linkedin"),
+                        contact.get("phone"),
+                        contact.get("notes"),
+                        contact_id,
+                        user_id,
+                    ),
+                )
+            else:
+                cur.execute(
+                    f"""
+                    INSERT INTO {SCHEMA}.contacts (
+                        user_id, company_id, name, role, email, linkedin, phone, notes
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING contact_id
+                    """,
+                    (
+                        user_id,
+                        contact.get("company_id"),
+                        contact.get("name"),
+                        contact.get("role"),
+                        contact.get("email"),
+                        contact.get("linkedin"),
+                        contact.get("phone"),
+                        contact.get("notes"),
+                    ),
+                )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+        return new_id
+
+
+def delete_contact(contact_id):
+    """Remove a contact."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.contacts WHERE contact_id = %s",
+                (contact_id,),
+            )
+        conn.commit()
+
+
+def list_processes(user_id, active_only=False):
+    """Recruitment processes, most recently updated first."""
+    where = "AND status = 'Actif'" if active_only else ""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            return _fetch_dicts(
+                cur,
+                f"""
+                SELECT process_id, company_id, contact_id, stage, status,
+                       recruitment_type, expected_salary, mission, technologies,
+                       client, location, remote, next_followup, comments,
+                       created_at, updated_at
+                FROM {SCHEMA}.recruitment_processes
+                WHERE user_id = %s {where}
+                ORDER BY updated_at DESC
+                """,
+                (user_id,),
+            )
+
+
+def save_process(user_id, process):
+    """Insert or update a recruitment process by process_id. Returns its id."""
+    process_id = process.get("process_id")
+    fields = (
+        process.get("company_id"),
+        process.get("contact_id"),
+        process.get("stage") or "Prospect",
+        process.get("status") or "Actif",
+        process.get("recruitment_type"),
+        process.get("expected_salary"),
+        process.get("mission"),
+        process.get("technologies") or [],
+        process.get("client"),
+        process.get("location"),
+        process.get("remote"),
+        process.get("next_followup"),
+        process.get("comments"),
+    )
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            if process_id:
+                cur.execute(
+                    f"""
+                    UPDATE {SCHEMA}.recruitment_processes SET
+                        company_id = %s, contact_id = %s, stage = %s, status = %s,
+                        recruitment_type = %s, expected_salary = %s, mission = %s,
+                        technologies = %s, client = %s, location = %s, remote = %s,
+                        next_followup = %s, comments = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE process_id = %s AND user_id = %s
+                    RETURNING process_id
+                    """,
+                    fields + (process_id, user_id),
+                )
+            else:
+                cur.execute(
+                    f"""
+                    INSERT INTO {SCHEMA}.recruitment_processes (
+                        user_id, company_id, contact_id, stage, status,
+                        recruitment_type, expected_salary, mission, technologies,
+                        client, location, remote, next_followup, comments
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING process_id
+                    """,
+                    (user_id,) + fields,
+                )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+        return new_id
+
+
+def update_process(process_id, **fields):
+    """Patch selected process columns (names whitelisted)."""
+    allowed = {
+        "stage", "status", "recruitment_type", "expected_salary", "mission",
+        "technologies", "client", "location", "remote", "next_followup",
+        "comments", "contact_id",
+    }
+    sets, params = [], []
+    for key, value in fields.items():
+        if key in allowed and value is not None:
+            sets.append(f"{key} = %s")
+            params.append(value)
+    if not sets:
+        return
+    sets.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(process_id)
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE {SCHEMA}.recruitment_processes SET {', '.join(sets)} "
+                "WHERE process_id = %s",
+                params,
+            )
+        conn.commit()
+
+
+def delete_process(process_id):
+    """Remove a process (cascades to its interactions)."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.recruitment_processes WHERE process_id = %s",
+                (process_id,),
+            )
+        conn.commit()
+
+
+def list_interactions(user_id, process_id=None, contact_id=None):
+    """Interactions, newest first; filterable by process or contact."""
+    where, params = ["user_id = %s"], [user_id]
+    if process_id is not None:
+        where.append("process_id = %s")
+        params.append(process_id)
+    if contact_id is not None:
+        where.append("contact_id = %s")
+        params.append(contact_id)
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            return _fetch_dicts(
+                cur,
+                f"""
+                SELECT interaction_id, process_id, contact_id, interaction_date,
+                       interaction_type, direction, summary, action_items,
+                       sentiment, next_followup, created_at
+                FROM {SCHEMA}.interactions
+                WHERE {' AND '.join(where)}
+                ORDER BY interaction_date DESC, created_at DESC
+                """,
+                tuple(params),
+            )
+
+
+def save_interaction(user_id, interaction):
+    """Insert or update an interaction by interaction_id. Returns its id."""
+    interaction_id = interaction.get("interaction_id")
+    fields = (
+        interaction.get("process_id"),
+        interaction.get("contact_id"),
+        interaction.get("interaction_date"),
+        interaction.get("interaction_type") or "Email",
+        interaction.get("direction") or "envoyé",
+        interaction.get("summary"),
+        interaction.get("action_items"),
+        interaction.get("sentiment"),
+        interaction.get("next_followup"),
+    )
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            if interaction_id:
+                cur.execute(
+                    f"""
+                    UPDATE {SCHEMA}.interactions SET
+                        process_id = %s, contact_id = %s, interaction_date = %s,
+                        interaction_type = %s, direction = %s, summary = %s,
+                        action_items = %s, sentiment = %s, next_followup = %s
+                    WHERE interaction_id = %s AND user_id = %s
+                    RETURNING interaction_id
+                    """,
+                    fields + (interaction_id, user_id),
+                )
+            else:
+                cur.execute(
+                    f"""
+                    INSERT INTO {SCHEMA}.interactions (
+                        user_id, process_id, contact_id, interaction_date,
+                        interaction_type, direction, summary, action_items,
+                        sentiment, next_followup
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING interaction_id
+                    """,
+                    (user_id,) + fields,
+                )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+        return new_id
+
+
+def delete_interaction(interaction_id):
+    """Remove an interaction."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.interactions WHERE interaction_id = %s",
+                (interaction_id,),
             )
         conn.commit()

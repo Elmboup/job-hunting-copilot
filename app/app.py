@@ -1587,6 +1587,70 @@ with tab5:
                     if (c.get("notes") or "").strip():
                         st.caption(f"📝 {c['notes']}")
 
+                    # --- Inline edit of the ESN's own information -------------
+                    if st.checkbox("✏️ Modifier les informations", key=f"cedit_t_{c['company_id']}"):
+                        with st.form(f"cedit_{c['company_id']}"):
+                            eA, eB = st.columns(2)
+                            with eA:
+                                ec_name = st.text_input("Nom", value=c.get("name") or "")
+                                ec_spec = st.text_input(
+                                    "Spécialisation", value=c.get("specialization") or ""
+                                )
+                                ec_sectors = st.text_input(
+                                    "Secteurs (séparés par des virgules)",
+                                    value=", ".join(c.get("sectors") or []),
+                                )
+                                ec_tech = st.text_input(
+                                    "Stack (séparées par des virgules)",
+                                    value=", ".join(c.get("technologies") or []),
+                                )
+                            with eB:
+                                ec_min = st.number_input(
+                                    "Fourchette salaire min (€)", 0, 300000,
+                                    int(c.get("salary_min") or 0), step=1000,
+                                )
+                                ec_max = st.number_input(
+                                    "Fourchette salaire max (€)", 0, 300000,
+                                    int(c.get("salary_max") or 0), step=1000,
+                                )
+                                remote_opts = ["Remote", "Hybride", "Sur site", "Variable"]
+                                cur_remote = c.get("remote_policy") or remote_opts[0]
+                                if cur_remote not in remote_opts:
+                                    remote_opts.append(cur_remote)
+                                ec_remote = st.selectbox(
+                                    "Politique remote", remote_opts,
+                                    index=remote_opts.index(cur_remote),
+                                )
+                                hiring_opts = ["CDI", "Freelance", "Portage salarial", "Sous-traitance"]
+                                cur_hiring = c.get("hiring_model") or hiring_opts[0]
+                                if cur_hiring not in hiring_opts:
+                                    hiring_opts.append(cur_hiring)
+                                ec_hiring = st.selectbox(
+                                    "Modèle de recrutement", hiring_opts,
+                                    index=hiring_opts.index(cur_hiring),
+                                )
+                            ec_notes = st.text_area("Notes", value=c.get("notes") or "")
+                            if st.form_submit_button("💾 Enregistrer les modifications", type="primary"):
+                                if not ec_name.strip():
+                                    st.error("Le nom est obligatoire.")
+                                else:
+                                    try:
+                                        rdb.update_consulting_company(c["company_id"], {
+                                            "name": ec_name.strip(),
+                                            "specialization": ec_spec,
+                                            "sectors": [x.strip() for x in ec_sectors.split(",") if x.strip()],
+                                            "technologies": [t.strip() for t in ec_tech.split(",") if t.strip()],
+                                            "salary_min": ec_min or None,
+                                            "salary_max": ec_max or None,
+                                            "remote_policy": ec_remote,
+                                            "hiring_model": ec_hiring,
+                                            "notes": ec_notes,
+                                        })
+                                        st.success("Informations enregistrées.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Enregistrement impossible : {e}")
+
                     # --- My evaluation (user-owned subjective metrics) --------
                     st.markdown("**✍️ Mon évaluation (à moi)**")
                     st.caption(

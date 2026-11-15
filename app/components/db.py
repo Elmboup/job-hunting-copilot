@@ -597,6 +597,38 @@ def save_consulting_company(user_id, company):
         return company_id
 
 
+def update_consulting_company(company_id, company):
+    """Update an ESN's information by id (also allows renaming — unlike the
+    name-keyed upsert in save_consulting_company). Returns the company id."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE {SCHEMA}.consulting_companies SET
+                    name = %s, specialization = %s, sectors = %s,
+                    technologies = %s, salary_min = %s, salary_max = %s,
+                    remote_policy = %s, hiring_model = %s, notes = %s
+                WHERE company_id = %s
+                RETURNING company_id
+                """,
+                (
+                    company.get("name"),
+                    company.get("specialization"),
+                    company.get("sectors") or [],
+                    company.get("technologies") or [],
+                    company.get("salary_min"),
+                    company.get("salary_max"),
+                    company.get("remote_policy"),
+                    company.get("hiring_model"),
+                    company.get("notes"),
+                    company_id,
+                ),
+            )
+            updated_id = cur.fetchone()[0]
+        conn.commit()
+        return updated_id
+
+
 def delete_consulting_company(company_id):
     """Remove a company (cascades to its contacts and processes)."""
     with lakebase_connection() as conn:

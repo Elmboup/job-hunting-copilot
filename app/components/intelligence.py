@@ -122,6 +122,26 @@ def talent_pool_probability(process, interactions):
     return min(1.0, prob)
 
 
+def mission_fit(process, interactions, company, profile):
+    """Heuristic fit between this mission and the candidate's profile.
+
+    Blend of profile↔company compatibility (stack/remote) and the
+    completeness of the mission brief, reduced by talent-pool risk.
+    Returns (score 0..1, factor list).
+    """
+    compat = compatibility_score(company or {}, profile or {})
+    mscore = mission_score(process)
+    pool = talent_pool_probability(process, interactions)
+    score = (0.5 * compat + 0.5 * mscore) * (1 - 0.3 * pool)
+    techs = (company or {}).get("technologies") or []
+    factors = [
+        f"Compatibilité profil ↔ ESN (stack{' non renseignée' if not techs else ''}, remote) : {compat:.0%} — poids 50%",
+        f"Complétude du dossier mission (mission, client, salaire, stack) : {mscore:.0%} — poids 50%",
+        f"Risque vivier : {pool:.0%}" + (" — malus 30%" if pool >= 0.5 else ""),
+    ]
+    return score, factors
+
+
 def offer_probability(process, interactions):
     """Heuristic probability of receiving an offer, from stage + velocity."""
     stage = process.get("stage")
@@ -151,6 +171,31 @@ def offer_probability(process, interactions):
     elif r_type == "Mission existante":
         prob = min(1.0, prob + 0.05)
     return max(0.0, min(1.0, prob))
+
+
+def offer_probability_factors(process, interactions):
+    """(score, factor list) — mirrors offer_probability, explaining it."""
+    score = offer_probability(process, interactions)
+    factors = [
+        f"Étape : {process.get('stage')} (avancement {stage_progress(process.get('stage')):.0%})"
+    ]
+    ordered = _sorted_interactions(interactions)
+    if ordered:
+        days = _days_between(_to_date(ordered[-1]["interaction_date"]), date.today())
+        if days is not None:
+            mark = "(+)" if days <= 14 else "(−)" if days > 30 else ""
+            factors.append(f"Dernière interaction il y a {days} jours {mark}")
+        avg = _avg_response_days(interactions)
+        if avg is not None:
+            factors.append(f"Délai de réponse moyen : {avg:.1f} j {'(+)' if avg <= 5 else ''}")
+    else:
+        factors.append("Aucune interaction enregistrée (−)")
+    r_type = process.get("recruitment_type")
+    if r_type == "Vivier":
+        factors.append("Type de recrutement : Vivier (×0,5)")
+    elif r_type == "Mission existante":
+        factors.append("Type de recrutement : Mission existante (+)")
+    return score, factors
 
 
 def contact_metrics(contact, interactions):
@@ -183,6 +228,16 @@ def contact_metrics(contact, interactions):
     if ghosted:
         reliability *= 0.4
     last_date = _to_date(ordered[-1]["interaction_date"]) if ordered else None
+    comm_factors = [f"{len(ordered)} interactions enregistrées"]
+    if avg_resp is not None:
+        comm_factors.append(
+            f"Délai de réponse moyen : {avg_resp:.1f} j {'(+)' if avg_resp <= 5 else ''}"
+        )
+    if ghosted:
+        comm_factors.append(f"Sans réponse depuis {days_unanswered} jours — ghosting (malus)")
+    else:
+        comm_factors.append("Aucun message resté sans réponse")
+    rel = round(max(0.0, min(1.0, reliability)), 2)
     return {
         "interaction_count": len(interactions),
         "last_interaction": last_date.isoformat() if last_date else None,
@@ -190,18 +245,36 @@ def contact_metrics(contact, interactions):
         "avg_response_days": round(avg_resp, 1) if avg_resp is not None else None,
         "ghosted": ghosted,
         "days_unanswered": days_unanswered,
-        "reliability": round(max(0.0, min(1.0, reliability)), 2),
+        "reliability": rel,
+        "communication_score": rel,
+        "communication_score_auto": rel,
+        "communication_score_mode": "auto",
+        "communication_factors": comm_factors,
     }
 
 
-def process_metrics(process, interactions):
-    """Per-process derived signals (probability, pool risk, velocity)."""
+def process_metrics(process, interactions, company=None, profile=None):
+    """Per-process derived signals (probability, mission fit, velocity).
+
+    Objective metrics expose <key>, <key>_auto, <key>_mode, <key>_factors;
+    build_snapshot replaces the effective value when a manual override
+    exists (mode switches to 'manual' and stays locked until deleted).
+    """
     ordered = _sorted_interactions(interactions)
     last = _to_date(ordered[-1]["interaction_date"]) if ordered else None
     avg_resp = _avg_response_days(interactions)
+    op, op_factors = offer_probability_factors(process, interactions)
+    mf, mf_factors = mission_fit(process, interactions, company, profile or {})
     return {
         "stage_progress": round(stage_progress(process.get("stage")), 2),
-        "offer_probability": round(offer_probability(process, interactions), 2),
+        "offer_probability": round(op, 2),
+        "offer_probability_auto": round(op, 2),
+        "offer_probability_mode": "auto",
+        "offer_probability_factors": op_factors,
+        "mission_fit": round(mf, 2),
+        "mission_fit_auto": round(mf, 2),
+        "mission_fit_mode": "auto",
+        "mission_fit_factors": mf_factors,
         "talent_pool_probability": round(talent_pool_probability(process, interactions), 2),
         "mission_score": round(mission_score(process), 2),
         "interaction_count": len(interactions),
@@ -256,6 +329,36 @@ def _company_name(companies, company_id):
     return None
 
 
+def _apply_objective_override(metrics, key, override):
+    """Lock an objective metric to its manual value (until switch back).
+
+    The companion <key>_factors stay those of the automatic heuristic so
+    the user can still see what the AI would say, and <key>_auto keeps the
+    live automatic value for reference.
+    """
+    if override is None or override.get("value") is None:
+        return
+    metrics[key] = round(float(override["value"]) / 100.0, 2)
+    metrics[f"{key}_mode"] = "manual"
+    metrics[f"{key}_manual_at"] = str(override.get("updated_at") or "")[:10]
+
+
+def _subjective_metrics(overrides):
+    """User-owned company metrics — values exist only if the user set them."""
+    out = {}
+    for key in ("attractiveness", "interest_level", "priority"):
+        o = overrides.get(key)
+        out[key] = (
+            round(float(o["value"]) / 100.0, 2) if o and o.get("value") is not None else None
+        )
+        out[f"{key}_rationale"] = o.get("rationale") if o else None
+        out[f"{key}_at"] = str(o.get("updated_at"))[:10] if o else None
+    notes = overrides.get("personal_notes")
+    out["personal_notes"] = notes.get("value_text") if notes else None
+    out["personal_notes_at"] = str(notes.get("updated_at"))[:10] if notes else None
+    return out
+
+
 def build_snapshot(user_id, profile):
     """Fetch every recruiting entity + attach all derived metrics and alerts.
 
@@ -266,6 +369,12 @@ def build_snapshot(user_id, profile):
     contacts = db.list_contacts(user_id)
     processes = db.list_processes(user_id)
     interactions = db.list_interactions(user_id)
+    overrides = db.list_metric_overrides(user_id)
+
+    ovr_idx = {}
+    for o in overrides:
+        ovr_idx[(o["entity_type"], o["entity_id"], o["metric_key"])] = o
+    company_by_id = {c["company_id"]: c for c in companies}
 
     today = date.today()
     by_company = {}
@@ -283,7 +392,17 @@ def build_snapshot(user_id, profile):
     alerts = []
     for p in processes:
         p_ints = by_process.get(p["process_id"], [])
-        metrics = process_metrics(p, p_ints)
+        metrics = process_metrics(
+            p, p_ints, company_by_id.get(p["company_id"]), profile
+        )
+        _apply_objective_override(
+            metrics, "offer_probability",
+            ovr_idx.get(("process", p["process_id"], "offer_probability")),
+        )
+        _apply_objective_override(
+            metrics, "mission_fit",
+            ovr_idx.get(("process", p["process_id"], "mission_fit")),
+        )
         name = _company_name(companies, p["company_id"])
         enriched_processes.append({**p, "company_name": name, "metrics": metrics})
         if p.get("status") == "Actif":
@@ -312,6 +431,10 @@ def build_snapshot(user_id, profile):
     enriched_contacts = []
     for c in contacts:
         metrics = contact_metrics(c, by_contact.get(c["contact_id"], []))
+        _apply_objective_override(
+            metrics, "communication_score",
+            ovr_idx.get(("contact", c["contact_id"], "communication_score")),
+        )
         name = _company_name(companies, c["company_id"])
         enriched_contacts.append({**c, "company_name": name, "metrics": metrics})
         if metrics["ghosted"]:
@@ -333,10 +456,12 @@ def build_snapshot(user_id, profile):
             i for i in interactions
             if i.get("process_id") in c_ids or i.get("contact_id") in c_contacts
         ]
-        enriched_companies.append({
-            **c,
-            "metrics": company_metrics(c, c_processes, c_ints, profile),
-        })
+        c_metrics = company_metrics(c, c_processes, c_ints, profile)
+        c_metrics.update(_subjective_metrics({
+            k: v for (et, eid, k), v in ovr_idx.items()
+            if et == "company" and eid == c["company_id"]
+        }))
+        enriched_companies.append({**c, "metrics": c_metrics})
 
     interviewed = [p for p in processes if stage_progress(p.get("stage")) >= 0.25]
     offers = [p for p in processes if p.get("stage") in ("Offre", "Accepté")]

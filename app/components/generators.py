@@ -5,6 +5,7 @@ components/resume.py). Each generator returns Markdown text ready to be
 displayed in the app and persisted in the documents table.
 """
 
+import json
 import re
 
 import requests
@@ -169,6 +170,17 @@ def _snapshot_text(snapshot: dict, limit: int = 40) -> str:
                 f"compatibilité {m.get('compatibility')}, "
                 f"délai réponse moy. {m.get('avg_response_days')} j"
             )
+            subj = []
+            for key, label in (("attractiveness", "attractivité"),
+                               ("interest_level", "intérêt"),
+                               ("priority", "priorité")):
+                v = m.get(key)
+                if v is not None:
+                    subj.append(f"{label} {v:.0%} (note perso)")
+            if m.get("personal_notes"):
+                subj.append(f"notes perso : {m['personal_notes'][:120]}")
+            if subj:
+                lines.append("  ↳ Évaluation perso : " + ", ".join(subj))
 
     processes = snapshot.get("processes") or []
     if processes:
@@ -181,7 +193,10 @@ def _snapshot_text(snapshot: dict, limit: int = 40) -> str:
                 f"mission «{(p.get('mission') or 'n/c')[:120]}», "
                 f"client {p.get('client') or 'n/c'}, "
                 f"salaire visé {p.get('expected_salary') or 'n/c'}, "
-                f"prob. offre {m.get('offer_probability')}, "
+                f"prob. offre {m.get('offer_probability')}"
+                f"{' (manuel)' if m.get('offer_probability_mode') == 'manual' else ''}, "
+                f"adéquation mission {m.get('mission_fit')}"
+                f"{' (manuel)' if m.get('mission_fit_mode') == 'manual' else ''}, "
                 f"risque vivier {m.get('talent_pool_probability')}, "
                 f"{m.get('interaction_count', 0)} interactions, "
                 f"dernière il y a {m.get('days_since_last')} j"
@@ -195,7 +210,9 @@ def _snapshot_text(snapshot: dict, limit: int = 40) -> str:
             state = "A RELANCER (ghosting)" if m.get("ghosted") else "OK"
             lines.append(
                 f"- {c['name']} ({c.get('role') or 'rôle n/c'}, {c.get('company_name') or 'ESN'}) : "
-                f"fiabilité {m.get('reliability')}, {m.get('interaction_count', 0)} interactions, "
+                f"communication {m.get('communication_score', m.get('reliability'))}"
+                f"{' (manuel)' if m.get('communication_score_mode') == 'manual' else ''}, "
+                f"{m.get('interaction_count', 0)} interactions, "
                 f"sans réponse depuis {m.get('days_unanswered')} j — {state}"
             )
 
@@ -236,7 +253,12 @@ def answer_recruiting_question(question: str, snapshot: dict, profile: dict) -> 
         "(probabilités, délais, fiabilité), ne jamais inventer de données. Si une "
         "information manque pour répondre pleinement, dis-le clairement et "
         "indique quoi renseigner dans l'app. Les scores fournis sont des "
-        "heuristiques — rappelle-le quand c'est pertinent."
+        "heuristiques — rappelle-le quand c'est pertinent. Les scores marqués "
+        "« (manuel) » sont des valeurs définies par l'utilisateur : ce sont "
+        "SES décisions — respecte-les, ne les conteste pas et ne les remplace "
+        "jamais par un score automatique. Les notes perso (attractivité, "
+        "intérêt, priorité, notes) appartiennent à l'utilisateur : ne jamais "
+        "les présenter comme des scores de l'IA."
     )
     user = (
         f"Profil du candidat :\n{_profile_text(profile)}\n\n"
@@ -245,3 +267,58 @@ def answer_recruiting_question(question: str, snapshot: dict, profile: dict) -> 
         f"Question : {question}"
     )
     return _llm(system, user, temperature=0.3)
+
+
+def suggest_company_scores(company: dict, processes: list, profile: dict) -> dict:
+    """SUGGESTION ONLY — initial values for the user-owned company metrics.
+
+    Never writes anything: the UI applies a suggestion only through an
+    explicit user action, and only to metrics the user has not set yet.
+    Returns {"attractiveness", "interest_level", "priority"} (0-100 ints)
+    plus {"explanations": {metric: short rationale}}.
+    """
+    fmt = ('{"attractiveness": <0-100>, "interest_level": <0-100>, '
+           '"priority": <0-100>, "explanations": '
+           '{"attractiveness": "<raison courte>", "interest_level": '
+           '"<raison courte>", "priority": "<raison courte>"}}')
+    system = (
+        "Tu es un conseiller carrière expert du marché français des ESN. "
+        "Tu proposes des notes SUBJECTIVES pour aider un candidat à évaluer "
+        "une ESN. Réponds UNIQUEMENT avec un objet JSON valide, sans texte "
+        "autour, au format exact : " + fmt + " "
+        "attractiveness = attractivité de l'ESN (réputation, missions, stack) ; "
+        "interest_level = intérêt personnel du candidat vu son profil ; "
+        "priority = priorité à donner à cette ESN dans sa recherche. "
+        "Appuie chaque note d'une raison courte et factuelle."
+    )
+    proc_lines = []
+    for p in processes:
+        m = p.get("metrics") or {}
+        proc_lines.append(
+            f"- {p.get('stage')} ({p.get('status')}), mission "
+            f"«{(p.get('mission') or 'n/c')[:100]}», client {p.get('client') or 'n/c'}, "
+            f"prob. offre {m.get('offer_probability')}, "
+            f"adéquation mission {m.get('mission_fit')}"
+        )
+    user = (
+        f"Profil du candidat :\n{_profile_text(profile)}\n\n"
+        f"ESN : {company.get('name')} — spécialisation "
+        f"{company.get('specialization') or 'n/c'}, stack "
+        f"{', '.join(company.get('technologies') or []) or 'n/c'}, remote "
+        f"{company.get('remote_policy') or 'n/c'}, notes "
+        f"{company.get('notes') or 'n/c'}\n"
+        "Processus :\n" + "\n".join(proc_lines or ["- aucun"])
+    )
+    raw = _llm(system, user, temperature=0.2)
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        raise ValueError(f"Réponse IA illisible : {raw[:200]}")
+    data = json.loads(match.group(0))
+    out = {}
+    for key in ("attractiveness", "interest_level", "priority"):
+        val = data.get(key)
+        out[key] = max(0, min(100, int(val))) if isinstance(val, (int, float)) else None
+    out["explanations"] = {
+        k: str(v)[:300] for k, v in (data.get("explanations") or {}).items()
+    }
+    return out

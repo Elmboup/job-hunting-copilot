@@ -1485,6 +1485,74 @@ with tab5:
                             f"- {i['interaction_date']} · {i['interaction_type']} "
                             f"({i.get('direction') or '—'}) — {(i.get('summary') or '')[:160]}"
                         )
+                        icol1, icol2 = st.columns([3, 1])
+                        with icol1:
+                            if st.checkbox("✏️ Modifier", key=f"ied_t_{i['interaction_id']}"):
+                                with st.form(f"ied_{i['interaction_id']}"):
+                                    eI1, eI2, eI3 = st.columns(3)
+                                    with eI1:
+                                        ei_type = st.selectbox(
+                                            "Type", rdb.INTERACTION_TYPES,
+                                            index=(rdb.INTERACTION_TYPES.index(i["interaction_type"])
+                                                   if i.get("interaction_type") in rdb.INTERACTION_TYPES else 0),
+                                            key=f"ied_ty_{i['interaction_id']}",
+                                        )
+                                        ei_dir = st.selectbox(
+                                            "Sens", rdb.INTERACTION_DIRECTIONS,
+                                            index=(rdb.INTERACTION_DIRECTIONS.index(i.get("direction"))
+                                                   if i.get("direction") in rdb.INTERACTION_DIRECTIONS else 0),
+                                            key=f"ied_di_{i['interaction_id']}",
+                                        )
+                                    with eI2:
+                                        ei_date = st.date_input(
+                                            "Date", value=i.get("interaction_date"),
+                                            key=f"ied_da_{i['interaction_id']}",
+                                        )
+                                        ei_sent = st.selectbox(
+                                            "Sentiment", ["Positif", "Neutre", "Négatif"],
+                                            index=(["Positif", "Neutre", "Négatif"].index(i.get("sentiment"))
+                                                   if i.get("sentiment") in ("Positif", "Neutre", "Négatif") else 1),
+                                            key=f"ied_se_{i['interaction_id']}",
+                                        )
+                                    with eI3:
+                                        ei_next = st.date_input(
+                                            "Prochaine relance", value=i.get("next_followup"),
+                                            key=f"ied_nf_{i['interaction_id']}",
+                                        )
+                                    ei_summary = st.text_area(
+                                        "Résumé", value=i.get("summary") or "",
+                                        key=f"ied_su_{i['interaction_id']}",
+                                    )
+                                    ei_actions = st.text_input(
+                                        "Actions à faire", value=i.get("action_items") or "",
+                                        key=f"ied_ac_{i['interaction_id']}",
+                                    )
+                                    if st.form_submit_button("💾 Enregistrer la modification", type="primary"):
+                                        try:
+                                            rdb.save_interaction(rid, {
+                                                "interaction_id": i["interaction_id"],
+                                                "process_id": i.get("process_id"),
+                                                "contact_id": i.get("contact_id"),
+                                                "interaction_date": ei_date,
+                                                "interaction_type": ei_type,
+                                                "direction": ei_dir,
+                                                "summary": ei_summary,
+                                                "action_items": ei_actions,
+                                                "sentiment": ei_sent,
+                                                "next_followup": ei_next,
+                                            })
+                                            st.success("Interaction modifiée.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Modification impossible : {e}")
+                        with icol2:
+                            if st.button(
+                                "🗑️ Supprimer", key=f"idel_{i['interaction_id']}",
+                                help="Supprimer définitivement cette interaction",
+                            ):
+                                rdb.delete_interaction(i["interaction_id"])
+                                st.success("Interaction supprimée.")
+                                st.rerun()
                     # NOTE: Streamlit forbids expanders inside expanders —
                     # keep the form directly inside the process expander.
                     st.markdown("**➕ Ajouter une interaction**")
@@ -1569,14 +1637,78 @@ with tab5:
                     kcol1, kcol2, kcol3, kcol4 = st.columns(4)
                     kcol1.metric("Processus", m["process_count"])
                     kcol2.metric("Offres", m["offer_count"])
+                    gh_ico = "✍️" if m.get("ghosting_score_mode") == "manual" else "🤖"
+                    dl_ico = "✍️" if m.get("avg_response_days_mode") == "manual" else "🤖"
                     kcol3.metric(
-                        "Ghosting",
+                        f"Ghosting {gh_ico}",
                         f"{m['ghosting_score']:.0%}" if m["ghosting_score"] is not None else "—",
                     )
                     kcol4.metric(
-                        "Délai moy. (j)",
+                        f"Délai moy. (j) {dl_ico}",
                         m["avg_response_days"] if m["avg_response_days"] is not None else "—",
                     )
+                    st.caption(
+                        "Processus et Offres sont des faits (dossiers réels, modifiables "
+                        "dans l'onglet « Processus ») ; Ghosting et délai sont calculés "
+                        "automatiquement et modifiables ci-dessous."
+                    )
+
+                    # --- Auto/Manual overrides for the computed ESN KPIs ------
+                    # Same ownership model as the process scores: a manual value
+                    # is locked until the user switches the toggle back to Auto.
+                    for k_key, k_label, k_max, k_unit in (
+                        ("ghosting_score", "Ghosting (%)", 100, "%"),
+                        ("avg_response_days", "Délai de réponse moyen (jours)", 30, "j"),
+                    ):
+                        k_mode = m.get(f"{k_key}_mode", "auto")
+                        k_tog = st.toggle(
+                            f"✍️ Mode manuel — {k_label}",
+                            value=(k_mode == "manual"),
+                            key=f"kmtog_{k_key}_{c['company_id']}",
+                        )
+                        if k_tog:
+                            k_cur = m.get(k_key)
+                            k_default = (
+                                int(round(k_cur)) if k_cur is not None
+                                else (3 if k_unit == "j" else 0)
+                            )
+                            k_val = st.slider(
+                                k_label, 0, k_max, k_default,
+                                key=f"kmsl_{k_key}_{c['company_id']}",
+                            )
+                            if st.button("💾 Verrouiller cette valeur", key=f"kmsv_{k_key}_{c['company_id']}"):
+                                rdb.save_metric_override(rid, {
+                                    "entity_type": "company",
+                                    "entity_id": c["company_id"],
+                                    "metric_key": k_key,
+                                    "value": k_val,
+                                })
+                                st.success("Valeur manuelle enregistrée — verrouillée jusqu'au retour au mode auto.")
+                                st.rerun()
+                        elif k_mode == "manual":
+                            # toggle switched OFF → back to automatic mode
+                            rdb.delete_metric_override(rid, "company", c["company_id"], k_key)
+                            st.success(f"{k_label} : retour au calcul automatique.")
+                            st.rerun()
+                        if st.checkbox("❓ Pourquoi ce score ?", key=f"kmwhy_{k_key}_{c['company_id']}"):
+                            for f_line in m.get(f"{k_key}_factors") or []:
+                                st.markdown(f"- {f_line}")
+                            if k_mode == "manual":
+                                auto_v = m.get(f"{k_key}_auto")
+                                auto_txt = (
+                                    "non calculable" if auto_v is None
+                                    else f"{auto_v:.0%}" if k_unit == "%"
+                                    else f"{auto_v} j"
+                                )
+                                st.caption(
+                                    f"Valeur manuelle — le calcul automatique donnerait "
+                                    f"{auto_txt} (pour référence)."
+                                )
+                            else:
+                                st.caption(
+                                    "Score calculé automatiquement — active le mode manuel pour le verrouiller."
+                                )
+
                     st.caption(
                         f"Spécialisation : {c.get('specialization') or '—'} · "
                         f"Secteurs : {', '.join(c.get('sectors') or []) or '—'} · "

@@ -323,6 +323,61 @@ a.job-card { display: block; text-decoration: none; color: inherit; }
 }
 [data-testid="stAlert"] { border-radius: var(--radius-sm); }
 
+/* ---------- File uploader ---------- */
+[data-testid="stFileUploader"] {
+    border: 1px dashed #CBD5E1;
+    border-radius: var(--radius);
+    background: #ffffff;
+    padding: 0.35rem 0.55rem;
+    transition: border-color 0.15s ease;
+}
+[data-testid="stFileUploader"]:hover { border-color: var(--accent); }
+[data-testid="stFileUploaderDropzone"] {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    min-height: 0;
+}
+/* Stack instruction text above the button, centered — avoids the squeezed
+   "Browse files" button in narrow columns. */
+[data-testid="stFileUploaderDropzone"] > section {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.35rem;
+    padding: 0.5rem 0.25rem;
+}
+[data-testid="stFileUploaderDropzone"] button {
+    background: #ffffff;
+    color: var(--ink-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.8rem;
+    padding: 0.3rem 1rem;
+    box-shadow: var(--shadow-1);
+    transition: all 0.15s ease;
+    margin: 0;
+}
+[data-testid="stFileUploaderDropzone"] button:hover {
+    border-color: #CBD5E1;
+    color: var(--ink);
+    transform: translateY(-1px);
+}
+[data-testid="stFileUploaderDropzone"] button:focus:not(:active) {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(14, 116, 144, 0.15);
+}
+[data-testid="stFileUploaderDropzone"] > section > span,
+[data-testid="stFileUploaderDropzone"] p {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.35;
+}
+
 /* ---------- Scrollbar & footer ---------- */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: #D2D9E0; border-radius: 5px; }
@@ -697,7 +752,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "🔎 Recherche d'offres", "📋 Candidatures", "👤 Mon Profil"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 Chat", "🔎 Recherche d'offres", "📋 Candidatures", "👤 Mon Profil", "🤝 ESN & Recruteurs"])
 
 # Tab 1: Chat Interface
 with tab1:
@@ -1039,7 +1094,7 @@ with tab4:
         "s'éditent dans « Modifier le profil » de la barre latérale."
     )
 
-    col_photo, col_id = st.columns([1, 3])
+    col_photo, col_id = st.columns([1, 2.2])
     with col_photo:
         st.markdown("**📸 Photo**")
         photo_file = st.file_uploader(
@@ -1189,6 +1244,393 @@ with tab4:
             file_name="cv_genere.md",
             key="dl_gen_cv",
         )
+
+# Tab 5: Recruiter Intelligence — suivi des recrutements ESN
+with tab5:
+    st.markdown("### 🤝 ESN & Recruteurs")
+    st.caption(
+        "Suivi des processus de recrutement avec les ESN : entreprises, contacts, "
+        "interactions, relances, scores et aide à la décision."
+    )
+
+    from components import db as rdb
+    from components import intelligence as rintel
+
+    try:
+        rid = rdb.get_user_id(
+            rdb.current_user_email(), st.session_state.user_profile['name']
+        )
+        r_snapshot = rintel.build_snapshot(rid, st.session_state.user_profile)
+    except Exception as e:
+        rid, r_snapshot = None, None
+        st.info(f"Recruiter Intelligence indisponible : {e}")
+
+    if r_snapshot is not None:
+        rt1, rt2, rt3, rt4 = st.tabs(
+            ["📊 Vue d'ensemble", "💼 Processus", "🏢 ESN & Contacts", "🤖 Assistant IA"]
+        )
+
+        # ----- Overview: alerts, KPIs, company comparison -----------------
+        with rt1:
+            alerts = r_snapshot["alerts"]
+            if alerts:
+                st.markdown("#### 🔔 Alertes & relances")
+                icon = {"relance": "⏰", "ghosting": "👻", "silence": "🔇"}
+                for a in alerts:
+                    st.markdown(
+                        f"- {icon.get(a['kind'], '•')} **{a.get('company') or '—'}** : {a['detail']}"
+                    )
+            else:
+                st.success("Aucune relance en retard — tout est à jour. ✅")
+
+            s = r_snapshot["summary"]
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Processus actifs", s["active"])
+            m2.metric("Offres", s["offers"])
+            m3.metric("Rejets", s["rejected"])
+            m4.metric("Conv. entretien", f"{s['interview_conversion']:.0%}" if s["interview_conversion"] is not None else "—")
+            m5.metric("Conv. offre", f"{s['offer_conversion']:.0%}" if s["offer_conversion"] is not None else "—")
+
+            st.markdown("#### Comparaison des ESN")
+            comp_rows = []
+            for c in r_snapshot["companies"]:
+                m = c["metrics"]
+                comp_rows.append({
+                    "ESN": c["name"],
+                    "Processus": m["process_count"],
+                    "Actifs": m["active_count"],
+                    "Prob. offre": (
+                        f"{m['avg_offer_probability']:.0%}"
+                        if m["avg_offer_probability"] is not None else "—"
+                    ),
+                    "Ghosting": (
+                        f"{m['ghosting_score']:.0%}"
+                        if m["ghosting_score"] is not None else "—"
+                    ),
+                    "Compat.": f"{m['compatibility']:.0%}",
+                    "Délai moy. (j)": m["avg_response_days"] if m["avg_response_days"] is not None else "—",
+                })
+            if comp_rows:
+                st.dataframe(comp_rows, use_container_width=True, hide_index=True)
+            else:
+                st.info("Ajoutez votre première ESN dans l'onglet « ESN & Contacts ».")
+
+        # ----- Processes: create, advance, log interactions ---------------
+        with rt2:
+            with st.expander("➕ Nouveau processus"):
+                companies = r_snapshot["companies"]
+                if not companies:
+                    st.info("Créez d'abord une ESN dans « ESN & Contacts ».")
+                else:
+                    c_names = {c["name"]: c["company_id"] for c in companies}
+                    with st.form("new_process", clear_on_submit=True):
+                        colA, colB = st.columns(2)
+                        with colA:
+                            np_company = st.selectbox("ESN", list(c_names))
+                            np_type = st.selectbox("Type de recrutement", rdb.RECRUITMENT_TYPES)
+                            np_stage = st.selectbox("Étape", rdb.PROCESS_STAGES)
+                        with colB:
+                            np_status = st.selectbox("Statut", rdb.PROCESS_STATUSES)
+                            np_salary = st.number_input("Salaire visé (€/an)", 0, 300000, 0, step=1000)
+                            np_followup = st.date_input("Prochaine relance", None)
+                        np_mission = st.text_area("Mission")
+                        colC, colD = st.columns(2)
+                        with colC:
+                            np_client = st.text_input("Client")
+                            np_location = st.text_input("Localisation")
+                        with colD:
+                            np_remote = st.selectbox("Télétravail", ["Remote", "Hybride", "Sur site"])
+                            np_tech = st.text_input("Technologies (séparées par des virgules)")
+                        if st.form_submit_button("Créer le processus", type="primary"):
+                            try:
+                                rdb.save_process(rid, {
+                                    "company_id": c_names[np_company],
+                                    "stage": np_stage,
+                                    "status": np_status,
+                                    "recruitment_type": np_type,
+                                    "expected_salary": np_salary or None,
+                                    "mission": np_mission,
+                                    "client": np_client,
+                                    "location": np_location,
+                                    "remote": np_remote,
+                                    "technologies": [t.strip() for t in np_tech.split(",") if t.strip()],
+                                    "next_followup": np_followup,
+                                    "comments": "",
+                                })
+                                st.success("Processus créé.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Création impossible : {e}")
+
+            for p in r_snapshot["processes"]:
+                m = p["metrics"]
+                if m["offer_probability"] >= 0.6:
+                    badge = "🎯"
+                elif m["offer_probability"] >= 0.3:
+                    badge = "🟡"
+                else:
+                    badge = "⚪"
+                title = (
+                    f"{badge} {p['company_name']} — {p.get('recruitment_type') or 'Processus'} — "
+                    f"{p['stage']} ({p['status']})"
+                )
+                with st.expander(title):
+                    st.progress(m["stage_progress"])
+                    colp1, colp2, colp3 = st.columns(3)
+                    colp1.metric("Prob. offre", f"{m['offer_probability']:.0%}")
+                    colp2.metric("Risque vivier", f"{m['talent_pool_probability']:.0%}")
+                    colp3.metric("Interactions", m["interaction_count"])
+                    st.caption(
+                        f"Mission : {p.get('mission') or '—'} · Client : {p.get('client') or '—'} · "
+                        f"Salaire visé : {p.get('expected_salary') or '—'} € · "
+                        f"Localisation : {p.get('location') or '—'} ({p.get('remote') or '?'})"
+                    )
+                    colE, colF, colG, colH = st.columns(4)
+                    with colE:
+                        new_stage = st.selectbox(
+                            "Étape", rdb.PROCESS_STAGES,
+                            index=(rdb.PROCESS_STAGES.index(p["stage"])
+                                   if p["stage"] in rdb.PROCESS_STAGES else 0),
+                            key=f"rstage_{p['process_id']}",
+                        )
+                    with colF:
+                        new_status = st.selectbox(
+                            "Statut", rdb.PROCESS_STATUSES,
+                            index=(rdb.PROCESS_STATUSES.index(p["status"])
+                                   if p["status"] in rdb.PROCESS_STATUSES else 0),
+                            key=f"rstatus_{p['process_id']}",
+                        )
+                    with colG:
+                        new_followup = st.date_input(
+                            "Prochaine relance", value=p.get("next_followup"),
+                            key=f"rnf_{p['process_id']}",
+                        )
+                    with colH:
+                        st.write("")
+                        if st.button("💾 Mettre à jour", key=f"rupd_{p['process_id']}"):
+                            rdb.update_process(
+                                p["process_id"], stage=new_stage,
+                                status=new_status, next_followup=new_followup,
+                            )
+                            st.success("Mis à jour.")
+                            st.rerun()
+
+                    p_ints = [
+                        i for i in r_snapshot["interactions"]
+                        if i.get("process_id") == p["process_id"]
+                    ]
+                    st.markdown(f"**Interactions ({len(p_ints)})**")
+                    for i in p_ints:
+                        st.markdown(
+                            f"- {i['interaction_date']} · {i['interaction_type']} "
+                            f"({i.get('direction') or '—'}) — {(i.get('summary') or '')[:160]}"
+                        )
+                    with st.expander("➕ Ajouter une interaction"):
+                        with st.form(f"rint_{p['process_id']}", clear_on_submit=True):
+                            iA, iB, iC = st.columns(3)
+                            with iA:
+                                ai_type = st.selectbox("Type", rdb.INTERACTION_TYPES)
+                                ai_dir = st.selectbox("Sens", rdb.INTERACTION_DIRECTIONS)
+                            with iB:
+                                ai_date = st.date_input("Date", None)
+                                ai_sentiment = st.selectbox("Sentiment", ["Positif", "Neutre", "Négatif"])
+                            with iC:
+                                ai_next = st.date_input("Prochaine relance", None, key=f"ainf_{p['process_id']}")
+                            ai_summary = st.text_area("Résumé")
+                            ai_actions = st.text_input("Actions à faire")
+                            if st.form_submit_button("Enregistrer l'interaction", type="primary"):
+                                try:
+                                    rdb.save_interaction(rid, {
+                                        "process_id": p["process_id"],
+                                        "contact_id": p.get("contact_id"),
+                                        "interaction_date": ai_date,
+                                        "interaction_type": ai_type,
+                                        "direction": ai_dir,
+                                        "summary": ai_summary,
+                                        "action_items": ai_actions,
+                                        "sentiment": ai_sentiment,
+                                        "next_followup": ai_next,
+                                    })
+                                    if ai_next:
+                                        rdb.update_process(p["process_id"], next_followup=ai_next)
+                                    st.success("Interaction enregistrée.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Enregistrement impossible : {e}")
+                    if st.button("🗑️ Supprimer le processus", key=f"rdelp_{p['process_id']}"):
+                        rdb.delete_process(p["process_id"])
+                        st.rerun()
+
+        # ----- Companies & contacts ----------------------------------------
+        with rt3:
+            with st.expander("➕ Nouvelle ESN (ou mise à jour par le même nom)"):
+                with st.form("new_company", clear_on_submit=True):
+                    nc_name = st.text_input("Nom de l'ESN *")
+                    nc_spec = st.text_input("Spécialisation (ex : Data / Cloud / DevOps)")
+                    nc_sectors = st.text_input("Secteurs (ex : Banque, Assurance, Télécom)")
+                    nc_tech = st.text_input("Technologies (séparées par des virgules)")
+                    colS1, colS2 = st.columns(2)
+                    with colS1:
+                        nc_min = st.number_input("Fourchette salaire min (€)", 0, 300000, 0, step=1000)
+                        nc_max = st.number_input("Fourchette salaire max (€)", 0, 300000, 0, step=1000)
+                    with colS2:
+                        nc_remote = st.selectbox("Politique remote", ["Remote", "Hybride", "Sur site", "Variable"])
+                        nc_hiring = st.selectbox("Modèle de recrutement", ["CDI", "Freelance", "Portage salarial", "Sous-traitance"])
+                    nc_notes = st.text_area("Notes")
+                    if st.form_submit_button("Enregistrer l'ESN", type="primary"):
+                        if not nc_name.strip():
+                            st.error("Le nom est obligatoire.")
+                        else:
+                            try:
+                                rdb.save_consulting_company(rid, {
+                                    "name": nc_name.strip(),
+                                    "specialization": nc_spec,
+                                    "sectors": [x.strip() for x in nc_sectors.split(",") if x.strip()],
+                                    "technologies": [t.strip() for t in nc_tech.split(",") if t.strip()],
+                                    "salary_min": nc_min or None,
+                                    "salary_max": nc_max or None,
+                                    "remote_policy": nc_remote,
+                                    "hiring_model": nc_hiring,
+                                    "notes": nc_notes,
+                                })
+                                st.success("ESN enregistrée.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Enregistrement impossible : {e}")
+
+            for c in r_snapshot["companies"]:
+                m = c["metrics"]
+                with st.expander(
+                    f"🏢 {c['name']} — {m['active_count']} actif(s) · "
+                    f"compat. {m['compatibility']:.0%}"
+                ):
+                    kcol1, kcol2, kcol3, kcol4 = st.columns(4)
+                    kcol1.metric("Processus", m["process_count"])
+                    kcol2.metric("Offres", m["offer_count"])
+                    kcol3.metric(
+                        "Ghosting",
+                        f"{m['ghosting_score']:.0%}" if m["ghosting_score"] is not None else "—",
+                    )
+                    kcol4.metric(
+                        "Délai moy. (j)",
+                        m["avg_response_days"] if m["avg_response_days"] is not None else "—",
+                    )
+                    st.caption(
+                        f"Spécialisation : {c.get('specialization') or '—'} · "
+                        f"Secteurs : {', '.join(c.get('sectors') or []) or '—'} · "
+                        f"Stack : {', '.join(c.get('technologies') or []) or '—'} · "
+                        f"Remote : {c.get('remote_policy') or '—'} · "
+                        f"Modèle : {c.get('hiring_model') or '—'}"
+                    )
+                    if (c.get("notes") or "").strip():
+                        st.caption(f"📝 {c['notes']}")
+
+                    c_contacts = [
+                        ct for ct in r_snapshot["contacts"]
+                        if ct["company_id"] == c["company_id"]
+                    ]
+                    st.markdown(f"**Contacts ({len(c_contacts)})**")
+                    for ct in c_contacts:
+                        cm = ct["metrics"]
+                        if cm["ghosted"]:
+                            state = "👻 à relancer"
+                        else:
+                            state = f"fiabilité {cm['reliability']:.0%}"
+                        delc, cinfo = st.columns([1, 8])
+                        with delc:
+                            if st.button("🗑️", key=f"rdelc_{ct['contact_id']}"):
+                                rdb.delete_contact(ct["contact_id"])
+                                st.rerun()
+                        with cinfo:
+                            st.markdown(
+                                f"**{ct['name']}** ({ct.get('role') or '—'}) — {state} · "
+                                f"{cm['interaction_count']} interactions · "
+                                f"{ct.get('email') or ''}"
+                            )
+                    with st.expander("➕ Ajouter un contact"):
+                        with st.form(f"rnewc_{c['company_id']}", clear_on_submit=True):
+                            ac_name = st.text_input("Nom *")
+                            ac_role = st.selectbox("Rôle", rdb.CONTACT_ROLES)
+                            acA, acB = st.columns(2)
+                            with acA:
+                                ac_email = st.text_input("Email")
+                                ac_phone = st.text_input("Téléphone")
+                            with acB:
+                                ac_linkedin = st.text_input("LinkedIn (URL)")
+                            ac_notes = st.text_area("Notes")
+                            if st.form_submit_button("Enregistrer le contact", type="primary"):
+                                if not ac_name.strip():
+                                    st.error("Le nom est obligatoire.")
+                                else:
+                                    try:
+                                        rdb.save_contact(rid, {
+                                            "company_id": c["company_id"],
+                                            "name": ac_name.strip(),
+                                            "role": ac_role,
+                                            "email": ac_email or None,
+                                            "linkedin": ac_linkedin or None,
+                                            "phone": ac_phone or None,
+                                            "notes": ac_notes,
+                                        })
+                                        st.success("Contact enregistré.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Enregistrement impossible : {e}")
+                    if st.button("🗑️ Supprimer l'ESN", key=f"rdelco_{c['company_id']}"):
+                        rdb.delete_consulting_company(c["company_id"])
+                        st.rerun()
+
+        # ----- AI assistant over the live snapshot -------------------------
+        with rt4:
+            r_presets = [
+                "Quel recruteur devrais-je relancer aujourd'hui ?",
+                "Résume mes processus de recrutement actifs.",
+                "Quelle ESN me donne la plus forte probabilité de recevoir une offre ?",
+                "Montre les recruteurs qui n'ont pas répondu depuis plus de 7 jours.",
+                "Quels processus sont probablement de simples viviers de CV ?",
+                "Pourquoi suis-je généralement rejeté(e) ?",
+                "Quelles entreprises correspondent le mieux à mon profil ?",
+                "Où devrais-je investir mon temps cette semaine ?",
+            ]
+            st.markdown("**Questions fréquentes**")
+            pres_cols = st.columns(2)
+            for idx, q in enumerate(r_presets):
+                if pres_cols[idx % 2].button(q, key=f"rq_{idx}", use_container_width=True):
+                    st.session_state["r_question"] = q
+                    st.session_state["r_auto"] = True
+
+            r_question = st.text_input(
+                "Votre question",
+                key="r_question",
+                placeholder="Ex : Compare Invivoo et Delane SI",
+            )
+            run_answer = st.button("🤖 Interroger l'Assistant", type="primary")
+            if st.session_state.get("r_auto"):
+                st.session_state["r_auto"] = False
+                run_answer = bool((r_question or "").strip())
+            if run_answer and (r_question or "").strip():
+                with st.spinner("Analyse de vos données de recrutement…"):
+                    try:
+                        from components import generators as rgen
+                        st.session_state["r_answer"] = rgen.answer_recruiting_question(
+                            r_question.strip(), r_snapshot, st.session_state.user_profile
+                        )
+                    except Exception as e:
+                        st.error(f"Impossible de répondre : {e}")
+            if st.session_state.get("r_answer"):
+                st.markdown("---")
+                st.markdown(st.session_state["r_answer"])
+                st.download_button(
+                    "⬇️ Télécharger la réponse (.md)",
+                    data=st.session_state["r_answer"],
+                    file_name="conseil_recuteur_ia.md",
+                    key="dl_r_answer",
+                )
+            if not r_snapshot["summary"]["processes"]:
+                st.info(
+                    "Ajoutez des ESN et des processus dans les autres onglets — "
+                    "l'Assistant s'appuie sur vos données réelles."
+                )
 
 # Footer
 st.markdown("---")

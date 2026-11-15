@@ -48,6 +48,14 @@ CONTACT_ROLES = [
 INTERACTION_TYPES = ["Appel", "Email", "Teams", "LinkedIn", "Autre"]
 INTERACTION_DIRECTIONS = ["envoyé", "reçu", "mutuel"]
 
+# Recruiter Intelligence — metric ownership
+# Objective metrics: AI computes a value the user may override (a row in
+# metric_overrides = manual lock; no row = automatic mode).
+# Subjective metrics: user-owned, they exist ONLY in metric_overrides —
+# the AI may suggest values but never writes them without a user action.
+OBJECTIVE_METRICS = ["mission_fit", "communication_score", "offer_probability"]
+SUBJECTIVE_METRICS = ["attractiveness", "interest_level", "priority", "personal_notes"]
+
 _DDL = f"""
 CREATE SCHEMA IF NOT EXISTS {SCHEMA};
 CREATE TABLE IF NOT EXISTS {SCHEMA}.users (
@@ -182,6 +190,27 @@ CREATE TABLE IF NOT EXISTS {SCHEMA}.interactions (
     sentiment VARCHAR(20),
     next_followup DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Metric overrides: manual values set by the user.
+-- Objective metrics (mission_fit, communication_score, offer_probability,
+-- value on a 0-100 scale) fall back to the AI heuristic when no row exists;
+-- a row = manual lock until the user deletes it (switch back to Auto).
+-- Subjective metrics (attractiveness, interest_level, priority on 0-100;
+-- personal_notes as text) live ONLY here — user-owned; AI suggestions are
+-- applied solely through an explicit user action in the UI, and `rationale`
+-- keeps the explanation attached to the value.
+CREATE TABLE IF NOT EXISTS {SCHEMA}.metric_overrides (
+    override_id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES {SCHEMA}.users(user_id),
+    entity_type VARCHAR(20) NOT NULL,
+    entity_id INTEGER NOT NULL,
+    metric_key VARCHAR(50) NOT NULL,
+    value NUMERIC,
+    value_text TEXT,
+    rationale TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, entity_type, entity_id, metric_key)
 );
 """
 
@@ -857,5 +886,73 @@ def delete_interaction(interaction_id):
             cur.execute(
                 f"DELETE FROM {SCHEMA}.interactions WHERE interaction_id = %s",
                 (interaction_id,),
+            )
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Recruiter Intelligence — metric overrides (manual / user-owned values)
+# ---------------------------------------------------------------------------
+
+def list_metric_overrides(user_id):
+    """All manual metric overrides (objective locks + subjective values)."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            return _fetch_dicts(
+                cur,
+                f"""
+                SELECT override_id, entity_type, entity_id, metric_key,
+                       value, value_text, rationale, updated_at
+                FROM {SCHEMA}.metric_overrides
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+
+
+def save_metric_override(user_id, override):
+    """Upsert one metric value by (entity_type, entity_id, metric_key)."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                INSERT INTO {SCHEMA}.metric_overrides (
+                    user_id, entity_type, entity_id, metric_key,
+                    value, value_text, rationale
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id, entity_type, entity_id, metric_key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    value_text = EXCLUDED.value_text,
+                    rationale = EXCLUDED.rationale,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING override_id
+                """,
+                (
+                    user_id,
+                    override.get("entity_type"),
+                    override.get("entity_id"),
+                    override.get("metric_key"),
+                    override.get("value"),
+                    override.get("value_text"),
+                    override.get("rationale"),
+                ),
+            )
+            override_id = cur.fetchone()[0]
+        conn.commit()
+        return override_id
+
+
+def delete_metric_override(user_id, entity_type, entity_id, metric_key):
+    """Remove a manual override — the metric returns to automatic mode."""
+    with lakebase_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                DELETE FROM {SCHEMA}.metric_overrides
+                WHERE user_id = %s AND entity_type = %s AND entity_id = %s
+                  AND metric_key = %s
+                """,
+                (user_id, entity_type, entity_id, metric_key),
             )
         conn.commit()
